@@ -82,6 +82,12 @@ class Navigator:
         if not self.ui.matches('open_map', frame):
             raise RuntimeError('map_or_role_changed')
         texts = self.ui.read(frame, self.ui.config['target_crops'])
+        role_checks = self.ui.config.get('target_role_checks', [])
+        for check in role_checks:
+            readings = [t for t in texts if in_region(t, check['region'])]
+            if (len(readings) != 1 or readings[0].score < .95 or
+                    normalize(readings[0].text) != normalize(check['text'])):
+                raise RuntimeError('map_role_mismatch')
         coord_texts = [t for t in texts if in_region(t, self.ui.config['target_coordinate_region']) and t.score >= .9]
         coords = {parse_coordinate(t.text) for t in coord_texts}
         coordinate = next(iter(coords)) if len(coords) == 1 else None
@@ -97,6 +103,7 @@ class Navigator:
             texts.extend(retry_texts)
         fields = target_fields(texts,self.ui.config['target_name_region'])
         fields['coordinate_processing'] = processing
+        fields['map_role_verified'] = bool(role_checks)
         return frame, ScreenState('details', tuple(texts), coordinate, False, fields)
 
     def inspect(self, target):

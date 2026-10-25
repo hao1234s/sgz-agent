@@ -102,3 +102,30 @@ def test_coordinate_retry_uses_new_ocr_evidence_and_never_replaces_valid_coordin
             return [box(original if self.count==1 else '(591,832)',[.42,.24,.55,.32])]
     ui=UI();frame,screen=Navigator(ui,{}).read_target()
     assert screen.coordinate==expected and ui.count==reads
+
+
+@pytest.mark.parametrize('right, score, region, extra, valid', [
+    ('测试甲', .99, [.18,.08,.24,.12], [], True),
+    ('测试乙', .99, [.18,.08,.24,.12], [], False),
+    ('测试甲', .94, [.18,.08,.24,.12], [], False),
+    ('测试甲', .99, [.5,.5,.6,.6], [], False),
+    ('', .99, [.18,.08,.24,.12], [], False),
+    ('测试甲', .99, [.18,.08,.24,.12], [box('测试乙',[.18,.08,.24,.12])], False),
+])
+def test_target_read_requires_unique_confident_role_text_in_each_calibrated_region(right,score,region,extra,valid):
+    from sgz_agent.navigation import Navigator
+    class UI:
+        config={'target_crops':[], 'target_coordinate_region':[.4,.2,.6,.4], 'target_name_region':[.4,.1,.6,.2],
+                'target_role_checks':[{'text':'示例','region':[.08,.07,.13,.13]},
+                                      {'text':'测试甲','region':[.17,.07,.25,.13]}]}
+        def capture(self): return object()
+        def matches(self,name,frame): return True
+        def read(self,frame,crops):
+            return [box('(592,832)',[.42,.24,.55,.32]), box('示例',[.09,.08,.12,.12]),
+                    box(right,region,score), *extra]
+    if valid:
+        frame,screen=Navigator(UI(),{}).read_target()
+        assert screen.coordinate==(592,832) and screen.fields['map_role_verified'] is True
+    else:
+        with pytest.raises(RuntimeError,match='map_role_mismatch'):
+            Navigator(UI(),{}).read_target()
