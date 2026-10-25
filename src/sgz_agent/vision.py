@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+from types import SimpleNamespace
 
 from .models import TextBox
 
@@ -12,6 +13,23 @@ class Vision:
         self.cache_dir = Path(cache_dir)
         self._engine = None
         self._lock = threading.Lock()
+
+    def read_regions(self, frame, crops):
+        width, height = frame.image.size
+        output = []
+        for crop in crops:
+            left, top, right, bottom = crop['box']
+            scale = crop.get('scale', 2)
+            if not (0 <= left < right <= width and 0 <= top < bottom <= height and 1 <= scale <= 4):
+                raise ValueError('invalid_ocr_crop')
+            patch = frame.image.crop((left, top, right, bottom))
+            patch = patch.resize((int(patch.width*scale), int(patch.height*scale)))
+            for item in self.read(SimpleNamespace(image=patch)):
+                x0,y0,x1,y1 = item.box
+                output.append(TextBox(item.text, item.score,
+                    ((left+x0*(right-left))/width, (top+y0*(bottom-top))/height,
+                     (left+x1*(right-left))/width, (top+y1*(bottom-top))/height)))
+        return output
 
     def read(self, frame):
         import numpy as np

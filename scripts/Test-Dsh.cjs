@@ -8,16 +8,19 @@ const {pathToFileURL} = require('node:url');
   const root = path.resolve(__dirname, '..');
   const runtime = path.join(path.dirname(process.execPath), 'resources', 'app.asar', 'dsh', 'package.json');
   const r = createRequire(runtime);
-  const {boot, composeEntries} = await import(pathToFileURL(r.resolve('@deepseek-ai/dsh-app-boot')).href);
+  const {boot, composeEntries, bundlePatchPaths} = await import(pathToFileURL(r.resolve('@deepseek-ai/dsh-app-boot')).href);
   const yaml = r('js-yaml');
-  const patch = yaml.load(fs.readFileSync(path.join(root,'plugin','cordis.patch.yml'),'utf8'));
+  const installed = process.argv.includes('--installed');
+  const packageRoot = installed ? path.dirname(createRequire(path.join(process.env.USERPROFILE,'.dsh','profiles','desktop','package.json')).resolve('dsh-sgz-agent/package.json')) : path.join(root,'plugin');
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot,'package.json'),'utf8'));
+  const patch = bundlePatchPaths(packageRoot,manifest.dsh.bundle).flatMap(file=>yaml.load(fs.readFileSync(file,'utf8')));
   const entries = composeEntries([[{insert:[
     {id:'system-prompt',name:'@deepseek-ai/dsh-system-prompt'},
     {id:'tools',name:'@deepseek-ai/dsh-tools'},
   ]}],patch]);
   const agent = entries.find(row=>row.id==='sgz-agent');
   if (!agent) throw Error('bundle_patch_did_not_insert_plugin');
-  agent.name = pathToFileURL(path.join(root,'plugin','dist','index.js')).href;
+  agent.name = pathToFileURL(path.join(packageRoot,'dist','index.js')).href;
   agent.config.rootDir = root;
   const directory = path.join(root,'.state','dsh-smoke');
   fs.mkdirSync(directory,{recursive:true});
@@ -29,7 +32,7 @@ const {pathToFileURL} = require('node:url');
     for(const name of names)if(!ctx.tools.get(`sgz_${name}`))throw Error(`tool_missing:${name}`);
     const status = await ctx.tools.get('sgz_game_status').execute({});
     if(!Array.isArray(status.windows))throw Error('invalid_worker_status');
-    console.log(JSON.stringify({ok:true,registeredTools:names.length,windows:status.windows.length,calibrated:status.calibrated}));
+    console.log(JSON.stringify({ok:true,installed,registeredTools:names.length,windows:status.windows.length,calibrated:status.calibrated}));
   } finally {
     await ctx.fiber.dispose();
   }

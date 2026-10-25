@@ -11,6 +11,7 @@ class FakeDesktop:
         self.events = []
         self.on_down = lambda: None
         self.fail_move = False
+        self.on_key = lambda key, down: None
 
     def snapshot(self, hwnd):
         return self.window
@@ -30,6 +31,10 @@ class FakeDesktop:
         self.events.append(("button", down))
         if down:
             self.on_down()
+
+    def key(self, key, down):
+        self.events.append(('key', key, down))
+        self.on_key(key, down)
 
 
 def test_stop_prevents_any_new_input():
@@ -98,3 +103,62 @@ def test_ui_transition_with_unchanged_window_prevents_input(action):
         else:
             controller.drag(frame, (20, 30), (40, 50))
     assert desktop.events == []
+
+
+def test_calibrated_regions_allow_background_animation_but_check_button_and_context():
+    from sgz_agent.control import Controller
+    desktop = FakeDesktop()
+    controller = Controller(desktop, 42)
+    frame = controller.observe()
+    regions = [{'box': [10, 10, 40, 40], 'max_delta': 20},
+               {'box': [100, 100, 200, 130], 'max_delta': 20}]
+    animated = frame.image.copy()
+    animated.putpixel((500, 500), (255, 0, 0))
+    desktop.capture = lambda window: animated
+    controller.click(frame, 20, 30, regions=regions)
+    assert desktop.events[-2:] == [('button', True), ('button', False)]
+    for point in [(20, 30), (110, 110)]:
+        desktop.events.clear()
+        changed = animated.copy()
+        changed.putpixel(point, (255, 255, 255))
+        desktop.capture = lambda window: changed
+        with pytest.raises(RuntimeError, match='screen_changed'):
+            controller.click(frame, 20, 30, regions=regions)
+        assert desktop.events == []
+
+
+@pytest.mark.parametrize('regions', [[], [{'box': [0,0,5,5]}],
+    [{'box': [0,0,5,5]}, {'box': [10,10,40,40]}],
+    [{'box': [10,10,40,40], 'max_delta': 255}, {'box': [100,100,200,130]}]])
+def test_calibrated_guard_rejects_missing_target_proof_or_excessive_tolerance(regions):
+    from sgz_agent.control import Controller
+    desktop = FakeDesktop()
+    controller = Controller(desktop, 42)
+    with pytest.raises(RuntimeError, match='invalid_visual_regions'):
+        controller.click(controller.observe(), 20, 30, regions=regions)
+    assert desktop.events == []
+
+
+def test_coordinate_entry_is_click_focus_select_all_and_digits_only():
+    from sgz_agent.control import Controller
+    desktop = FakeDesktop()
+    controller = Controller(desktop, 42)
+    controller.enter_coordinate(controller.observe(), 20, 30, '830')
+    assert desktop.events[:3] == [('move',(120,230)),('button',True),('button',False)]
+    assert desktop.events[3:] == [('key',17,True),('key',65,True),('key',65,False),('key',17,False),
+                                 ('key',56,True),('key',56,False),('key',51,True),('key',51,False),
+                                 ('key',48,True),('key',48,False)]
+    desktop.events.clear()
+    with pytest.raises(ValueError, match='coordinate_digits_required'):
+        controller.enter_coordinate(controller.observe(),20,30,'830\n')
+    assert desktop.events == []
+
+
+def test_stop_during_coordinate_typing_releases_owned_modifier():
+    from sgz_agent.control import Controller
+    desktop = FakeDesktop()
+    controller = Controller(desktop, 42)
+    desktop.on_key = lambda key, down: controller.stop() if down else None
+    with pytest.raises(RuntimeError, match='stopped'):
+        controller.enter_coordinate(controller.observe(),20,30,'830')
+    assert desktop.events[-2:] == [('key',17,True),('key',17,False)]

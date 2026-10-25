@@ -96,6 +96,8 @@ class WindowsDesktop:
             self.kernel.CloseHandle(handle)
 
     def activate(self, hwnd):
+        if self.snapshot(hwnd).foreground:
+            return
         if not self.user.SetForegroundWindow(hwnd):
             raise GuardError("activation_denied")
         deadline = time.monotonic() + 1
@@ -184,6 +186,9 @@ class WindowsDesktop:
 
     def button(self, down):
         self._send(INPUT(0, INPUTUNION(mi=MOUSEINPUT(0, 0, 0, 0x0002 if down else 0x0004, 0, 0))))
+
+    def key(self, virtual_key, down):
+        self._send(INPUT(1, INPUTUNION(ki=KEYBDINPUT(virtual_key, 0, 0 if down else 0x0002, 0, 0))))
 
 
 class StopListener:

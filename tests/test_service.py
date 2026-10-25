@@ -85,3 +85,40 @@ def test_second_worker_cannot_recover_jobs_owned_by_live_worker(tmp_path):
     restarted = make_service(tmp_path)
     assert restarted.store.get_job(job['id'])['status'] == 'paused'
     restarted.close()
+
+
+def test_exploration_rejects_different_world_before_starting_job(tmp_path):
+    from dataclasses import replace
+    service=make_service(tmp_path)
+    service.config=replace(service.config, identity={'world':'expected'})
+    try:
+        with pytest.raises(ValueError,match='world_mismatch'):
+            service.dispatch('inspect_target',{'request_id':'wrong','world':'other','x':1,'y':2})
+        assert service.store.list_jobs() == []
+    finally: service.close()
+
+
+def test_exploration_resumes_only_unverified_targets_and_saves_matching_evidence(tmp_path):
+    from dataclasses import replace
+    from PIL import Image
+    from sgz_agent.recognition import ScreenState
+    service=make_service(tmp_path)
+    service.config=replace(service.config,identity={'world':'expected'})
+    job=service.store.create_job('explore','resume',{'world':'expected','points':[[1,2],[2,2]]})
+    service.store.save_observation(job['id'],'expected','surface',1,2,{},'prior.png')
+    seen=[]
+    class Nav:
+        ui=SimpleNamespace(activate=lambda:seen.append('activate'))
+        def verify_identity(self): seen.append('identity')
+        def inspect(self, point):
+            seen.append(point)
+            return SimpleNamespace(image=Image.new('RGB',(20,20))),ScreenState('details',coordinate=point,fields={'name':'空地'})
+    service._navigator=lambda:Nav()
+    service._explore(job)
+    assert seen == ['activate','identity',(2,2)]
+    assert service.store.get_job(job['id'])['status']=='complete'
+    records=service.store.observations(job['id'])
+    assert len(records)==2
+    from pathlib import Path
+    assert Path(records[-1]['evidence']).is_file()
+    service.close()

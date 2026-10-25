@@ -80,6 +80,7 @@ class AgentService:
             return {"windows": [asdict(w) for w in self.desktop.list_windows(self.config.executable)],
                     "jobs": [self.store.get_job(params["job_id"])] if params.get("job_id") else self.store.list_jobs(),
                     "calibrated": self.config.ui.get("calibrated", False),
+                    "world": self.config.identity.get('world'),
                     "identity_configured": bool(self.config.identity), "stop_requested": self.stop_event.is_set()}
         if method == "pause_task":
             job_id = params["job_id"]
@@ -98,7 +99,10 @@ class AgentService:
                     raise RuntimeError("job_busy_use_game_status")
                 self.observing = True
             try:
-                frame, screen = self._observe()
+                if self.config.ui.get('navigation') and self._navigator().ui.matches('open_map'):
+                    frame, screen = self._navigator().read_target()
+                else:
+                    frame, screen = self._observe()
                 result = asdict(screen)
                 result["window"] = asdict(frame.observation.window)
                 # QR/auth frames never enter the evidence archive.
@@ -114,6 +118,8 @@ class AgentService:
             world = params.get("world")
             if not isinstance(world, str) or not world.strip():
                 raise ValueError("world_required")
+            if self.config.identity.get('world') and world != self.config.identity['world']:
+                raise ValueError('world_mismatch')
             if method == "inspect_target":
                 points = region_points(params["x"], params["y"], params["x"], params["y"])
             else:
@@ -180,6 +186,14 @@ class AgentService:
         self.desktop.activate(controller.hwnd)
         flow = LoginFlow()
         while not self.stop_event.is_set():
+            if self.config.ui.get('navigation'):
+                navigator = self._navigator()
+                if any(navigator.ui.matches(name) for name in ('open_map','settings_back','overview_back','role_back','season_back')):
+                    navigator.verify_identity()
+                    if not navigator.ui.matches('open_map'):
+                        raise RuntimeError('map_not_ready')
+                    self.store.update_job(job['id'], 'complete', 'identity_verified')
+                    return
             frame, screen = self._observe()
             if self.stop_event.is_set():
                 break
@@ -215,10 +229,41 @@ class AgentService:
         return str(final)
 
     def _explore(self, job):
-        if not self.config.identity:
+        if not self.config.identity.get('world'):
             raise RuntimeError("identity_configuration_required")
-        # Navigation is enabled only after its actual UI path has been calibrated.
-        raise RuntimeError("calibration_required:coordinate_navigation")
+        if job['payload']['world'] != self.config.identity['world']:
+            raise RuntimeError('world_mismatch')
+        navigator = self._navigator()
+        navigator.ui.activate()
+        navigator.verify_identity()
+        completed = self.store.verified_points(job['id'])
+        points = [tuple(point) for point in job['payload']['points']]
+        deadline = time.monotonic() + 900
+        for point in points:
+            if self.stop_event.is_set():
+                raise RuntimeError('stopped')
+            if time.monotonic() >= deadline:
+                raise RuntimeError('exploration_timeout')
+            if point in completed:
+                continue
+            self.store.update_job(job['id'], 'running', f'inspecting:{point[0]},{point[1]}:{len(completed)}/{len(points)}')
+            frame, screen = navigator.inspect(point)
+            if self.stop_event.is_set():
+                raise RuntimeError('stopped')
+            if screen.coordinate != point:
+                raise RuntimeError('coordinate_mismatch')
+            evidence = self._save_frame(frame)
+            self.store.save_observation(job['id'], job['payload']['world'], 'surface',
+                                        *point, screen.fields, evidence)
+            completed.add(point)
+        self.store.update_job(job['id'], 'complete', f'verified:{len(completed)}/{len(points)}')
+
+    def _navigator(self):
+        from .game_ui import GameUI
+        from .navigation import Navigator
+        if not self.config.ui.get('calibrated') or not self.config.ui.get('navigation'):
+            raise RuntimeError('calibration_required:coordinate_navigation')
+        return Navigator(GameUI(self._bind(), self.vision, self.config), self.config.identity)
 
     def request_stop(self):
         with self.lock:

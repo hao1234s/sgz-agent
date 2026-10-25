@@ -1,4 +1,4 @@
-param([string]$DshExecutable)
+param([string]$DshExecutable, [switch]$Installed)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $env:PYTHONIOENCODING = 'utf-8'
@@ -20,7 +20,9 @@ try {
         try {
             $env:ELECTRON_RUN_AS_NODE = '1'
             $scriptPath = Join-Path $PSScriptRoot 'Test-Dsh.cjs'
-            $process = Start-Process -FilePath $DshExecutable -ArgumentList '--expose-internals', ('"' + $scriptPath + '"') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $logs 'dsh.out') -RedirectStandardError (Join-Path $logs 'dsh.err')
+            $dshArgs = @('--expose-internals', ('"' + $scriptPath + '"'))
+            if ($Installed) { $dshArgs += '--installed' }
+            $process = Start-Process -FilePath $DshExecutable -ArgumentList $dshArgs -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput (Join-Path $logs 'dsh.out') -RedirectStandardError (Join-Path $logs 'dsh.err')
             Get-Content -LiteralPath (Join-Path $logs 'dsh.out'), (Join-Path $logs 'dsh.err')
             if ($process.ExitCode -ne 0) { throw 'Installed DSH integration check failed' }
         } finally { $env:ELECTRON_RUN_AS_NODE = $previousElectronNode }

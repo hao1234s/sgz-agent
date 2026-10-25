@@ -1,10 +1,12 @@
 import threading
 import time
 import uuid
+import re
 from PIL import ImageChops
 
 from .guard import ActionGuard, GuardError
 from .models import Frame, Observation
+from .visual_guard import check_regions
 
 
 class Controller:
@@ -42,18 +44,20 @@ class Controller:
             self.desktop.button(False)
             self._held = False
 
-    def _check_screen(self, frame):
+    def _check_screen(self, frame, regions=None, point=None):
         self._check(frame)
         fresh = self.observe()
         self._check(frame)
-        if frame.image.size != fresh.image.size or ImageChops.difference(
+        if regions is not None:
+            check_regions(frame.image, fresh.image, regions, point)
+        elif frame.image.size != fresh.image.size or ImageChops.difference(
                 frame.image.convert('RGB'), fresh.image.convert('RGB')).getbbox() is not None:
             raise GuardError('screen_changed')
 
-    def click(self, frame, x, y):
+    def click(self, frame, x, y, *, regions=None):
         with self._lock:
             try:
-                self._check_screen(frame)
+                self._check_screen(frame, regions, (x, y))
                 self._move(frame, (x, y))
                 self._check(frame, (x, y))
                 self._held = True
@@ -79,6 +83,33 @@ class Controller:
                 self._check(frame, end)
             finally:
                 self._release()
+
+    def enter_coordinate(self, frame, x, y, value, *, regions=None):
+        if not isinstance(value, str) or re.fullmatch(r'[0-9]{1,5}', value) is None:
+            raise ValueError('coordinate_digits_required')
+        with self._lock:
+            self.click(frame, x, y, regions=regions)
+            focused = self.observe()
+            held = []
+            def down(key):
+                self._check(focused, (x,y))
+                held.append(key)
+                self.desktop.key(key, True)
+            def up(key):
+                self.desktop.key(key, False)
+                held.remove(key)
+            try:
+                self._check_screen(focused, regions, (x,y))
+                down(17)
+                down(65)
+                up(65)
+                up(17)
+                for digit in value:
+                    down(ord(digit))
+                    up(ord(digit))
+            finally:
+                for key in reversed(held):
+                    self.desktop.key(key, False)
 
     def stop(self):
         self.stopped.set()
