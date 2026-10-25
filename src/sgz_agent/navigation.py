@@ -85,7 +85,18 @@ class Navigator:
         coord_texts = [t for t in texts if in_region(t, self.ui.config['target_coordinate_region']) and t.score >= .9]
         coords = {parse_coordinate(t.text) for t in coord_texts}
         coordinate = next(iter(coords)) if len(coords) == 1 else None
+        processing = 'original'
+        retry_crops = self.ui.config.get('target_coordinate_retry_crops', [])
+        if coordinate is None and not any(p is not None for p in coords) and retry_crops:
+            retry_texts = self.ui.read(frame, retry_crops)
+            retry_coords = {parse_coordinate(t.text) for t in retry_texts
+                            if t.score >= .9 and in_region(t,self.ui.config['target_coordinate_region'])}
+            if len(retry_coords) == 1 and None not in retry_coords:
+                coordinate = next(iter(retry_coords))
+                processing = 'contrast_retry'
+            texts.extend(retry_texts)
         fields = target_fields(texts,self.ui.config['target_name_region'])
+        fields['coordinate_processing'] = processing
         return frame, ScreenState('details', tuple(texts), coordinate, False, fields)
 
     def inspect(self, target):

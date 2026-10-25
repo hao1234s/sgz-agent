@@ -16,6 +16,7 @@ class Controller:
         self.stopped = threading.Event()
         self._lock = threading.RLock()
         self._held = False
+        self._held_keys = []
 
     def _check(self, frame, point=None):
         if self.stopped.is_set():
@@ -43,6 +44,18 @@ class Controller:
         if self._held:
             self.desktop.button(False)
             self._held = False
+
+    def _release_keys(self):
+        errors = []
+        for key in reversed(self._held_keys.copy()):
+            try:
+                self.desktop.key(key, False)
+            except Exception as error:
+                errors.append(error)
+            else:
+                self._held_keys.remove(key)
+        if errors:
+            raise RuntimeError('key_release_failed') from errors[0]
 
     def _check_screen(self, frame, regions=None, point=None):
         self._check(frame)
@@ -88,16 +101,17 @@ class Controller:
         if not isinstance(value, str) or re.fullmatch(r'[0-9]{1,5}', value) is None:
             raise ValueError('coordinate_digits_required')
         with self._lock:
+            if self._held_keys:
+                raise GuardError('keys_still_held')
             self.click(frame, x, y, regions=regions)
             focused = self.observe()
-            held = []
             def down(key):
                 self._check(focused, (x,y))
-                held.append(key)
+                self._held_keys.append(key)
                 self.desktop.key(key, True)
             def up(key):
                 self.desktop.key(key, False)
-                held.remove(key)
+                self._held_keys.remove(key)
             try:
                 self._check_screen(focused, regions, (x,y))
                 down(17)
@@ -108,8 +122,7 @@ class Controller:
                     down(ord(digit))
                     up(ord(digit))
             finally:
-                for key in reversed(held):
-                    self.desktop.key(key, False)
+                self._release_keys()
 
     def stop(self):
         self.stopped.set()
@@ -117,4 +130,7 @@ class Controller:
     def close(self):
         self.stop()
         with self._lock:
-            self._release()
+            try:
+                self._release()
+            finally:
+                self._release_keys()

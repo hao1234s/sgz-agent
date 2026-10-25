@@ -162,3 +162,21 @@ def test_stop_during_coordinate_typing_releases_owned_modifier():
     with pytest.raises(RuntimeError, match='stopped'):
         controller.enter_coordinate(controller.observe(),20,30,'830')
     assert desktop.events[-2:] == [('key',17,True),('key',17,False)]
+
+
+def test_failed_key_release_still_releases_other_keys_and_close_retries_owned_key():
+    from sgz_agent.control import Controller
+    desktop=FakeDesktop();controller=Controller(desktop,42)
+    failures=[2]
+    def reject_a_release(key,down):
+        if key==65 and not down and failures[0]:
+            failures[0]-=1
+            raise OSError('key_up_rejected')
+    desktop.on_key=reject_a_release
+    with pytest.raises(RuntimeError,match='key_release_failed'):
+        controller.enter_coordinate(controller.observe(),20,30,'830')
+    assert ('key',17,False) in desktop.events
+    assert not any(event[0]=='key' and event[1]==56 for event in desktop.events)
+    controller.close()
+    assert desktop.events[-1]==('key',65,False)
+    assert not controller._held_keys

@@ -86,3 +86,19 @@ def test_recovery_allows_interrupted_transition_to_settle_before_reading_identit
         def read(self,frame,crops): return [box('1234',[.3,.72,.4,.77])]
         def act(self,name,**kwargs): assert name=='settings_back'
     Navigator(UI(),{'checks':[{'text':'^1234$','region':[.2,.7,.5,.8]}]}).verify_identity()
+
+
+@pytest.mark.parametrize('original, expected, reads', [('(591.832)',(591,832),2),('(590,832)',(590,832),1)])
+def test_coordinate_retry_uses_new_ocr_evidence_and_never_replaces_valid_coordinates(original,expected,reads):
+    from sgz_agent.navigation import Navigator
+    class UI:
+        config={'target_crops':[], 'target_coordinate_retry_crops':[{'box':[1,1,9,9],'binary_threshold':120}],
+                'target_coordinate_region':[.4,.2,.6,.4], 'target_name_region':[.1,.1,.2,.2]}
+        count=0
+        def capture(self): return object()
+        def matches(self,name,frame): return True
+        def read(self,frame,crops):
+            self.count+=1
+            return [box(original if self.count==1 else '(591,832)',[.42,.24,.55,.32])]
+    ui=UI();frame,screen=Navigator(ui,{}).read_target()
+    assert screen.coordinate==expected and ui.count==reads

@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import threading
 from types import SimpleNamespace
+from PIL import Image
 
 from .models import TextBox
 
@@ -23,7 +24,13 @@ class Vision:
             if not (0 <= left < right <= width and 0 <= top < bottom <= height and 1 <= scale <= 4):
                 raise ValueError('invalid_ocr_crop')
             patch = frame.image.crop((left, top, right, bottom))
-            patch = patch.resize((int(patch.width*scale), int(patch.height*scale)))
+            threshold = crop.get('binary_threshold')
+            if threshold is not None:
+                if type(threshold) is not int or not 0 <= threshold <= 255:
+                    raise ValueError('invalid_binary_threshold')
+                patch = patch.convert('L').point(lambda value:255 if value > threshold else 0).convert('RGB')
+            patch = patch.resize((int(patch.width*scale), int(patch.height*scale)),
+                                 Image.Resampling.NEAREST if threshold is not None else Image.Resampling.BICUBIC)
             for item in self.read(SimpleNamespace(image=patch)):
                 x0,y0,x1,y1 = item.box
                 output.append(TextBox(item.text, item.score,
