@@ -46,13 +46,13 @@ class LoginFlow:
         return Decision("pause", "unknown_screen")
 
 
-def region_points(x0, y0, x1, y1):
+def region_points(x0, y0, x1, y1, *, max_points=25):
     if any(type(v) is not int for v in (x0, y0, x1, y1)):
         raise ValueError("integer_coordinates_required")
     if not (0 <= x0 <= x1 <= 99999 and 0 <= y0 <= y1 <= 99999):
         raise ValueError("invalid_region")
-    if (x1 - x0 + 1) * (y1 - y0 + 1) > 25:
-        raise ValueError("region_limit_25")
+    if (x1 - x0 + 1) * (y1 - y0 + 1) > max_points:
+        raise ValueError(f"region_limit_{max_points}")
     result = []
     for y in range(y0, y1 + 1):
         xs = range(x0, x1+1) if (y-y0) % 2 == 0 else range(x1, x0-1, -1)

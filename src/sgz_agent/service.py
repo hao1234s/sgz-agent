@@ -1,4 +1,5 @@
 from dataclasses import asdict
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -13,6 +14,10 @@ from .store import Store
 from .vision import Vision
 from .workflow import LoginFlow, region_points
 from .lease import DataLease
+from .transport import protocol_status
+from .combat_assessment import assess_combat
+from .hunt_store import HuntStore
+from .hunt import HuntCoordinator
 
 
 class AgentService:
@@ -39,6 +44,10 @@ class AgentService:
         self.closed = False
         self.observing = False
         self.resources_closed = False
+        self.hunt_store = HuntStore(config.data_dir)
+        self.hunt_coordinator = None
+        if any(c['status'] == 'running' for c in self.hunt_store.list()):
+            self._hunts()
 
     def _bind(self):
         with self.lock:
@@ -60,10 +69,34 @@ class AgentService:
                 raise
         return self.controller
 
-    def _stop(self):
+    def _stop(self, *, pause_hunts=True):
         self.stop_event.set()
+        if pause_hunts:
+            for campaign in self.hunt_store.list():
+                if campaign['status'] == 'running':
+                    self.hunt_store.update(campaign['id'],status='paused',reason='emergency_stop:no_withdrawal')
         if self.controller:
             self.controller.stop()
+
+    def _make_hunt_client(self):
+        from .hunt_client import HuntClient
+        return HuntClient(self.config, stop_event=self.stop_event)
+
+    def _hunts(self):
+        with self.lock:
+            if self.hunt_coordinator is None:
+                self.hunt_coordinator = HuntCoordinator(self.hunt_store,self._make_hunt_client(),
+                                                        world=self.config.identity.get('world'))
+                self.hunt_coordinator.start_background()
+            return self.hunt_coordinator
+
+    def _listen_stop(self):
+        from .windows import StopListener
+        with self.lock:
+            if self.closed or self.stop_event.is_set():
+                raise RuntimeError('stopped')
+            if self.hotkey is None:
+                self.hotkey = StopListener(self._stop).start()
 
     def _observe(self):
         with self.read_lock:
@@ -76,12 +109,48 @@ class AgentService:
     def dispatch(self, method, params):
         if self.closed:
             raise RuntimeError("service_closed")
+        if method == 'assess_combat':
+            return assess_combat(**params)
+        if method in {'hunt_start','hunt_status','hunt_stop','hunt_resume'}:
+            coordinator = self._hunts()
+            if method == 'hunt_status': return coordinator.status(**params)
+            if method == 'hunt_stop': return coordinator.stop(**params)
+            if method == 'hunt_resume':
+                self.stop_event.clear()
+                return coordinator.resume(**params)
+            self._validate_world(params.get('world'))
+            if self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
+            self.stop_event.clear()
+            return coordinator.start(request_id=params['request_id'],army_ids=params.get('army_ids'))
+        if method in {'prepare_login','observe_map','inspect_target','explore_region','scan_region','refresh_roster'}:
+            if any(c['status'] == 'running' for c in self.hunt_store.list()):
+                raise RuntimeError('hunt_active:use_hunt_status_or_stop_before_manual_acquisition')
+        if method == 'protocol_status':
+            return protocol_status(self.config)
         if method == "game_status":
-            return {"windows": [asdict(w) for w in self.desktop.list_windows(self.config.executable)],
+            return {"service": {"state": "running", "pid": os.getpid()},
+                    "windows": [asdict(w) for w in self.desktop.list_windows(self.config.executable)],
                     "jobs": [self.store.get_job(params["job_id"])] if params.get("job_id") else self.store.list_jobs(),
                     "calibrated": self.config.ui.get("calibrated", False),
+                    "capabilities": {
+                        "managed_client": True,
+                        "map_search": True, "scan_region_max_points": 2500,
+                        "map_api_scan": protocol_status(self.config)['api_scan_available'],
+                        "scan_region_default_source": "api", "map_ui_scan": True,
+                        "bandit_recognition_calibrated": bool(self.config.ui.get('navigation', {}).get('target_detail_region')) if self.config.ui.get('navigation') else False,
+                        "roster_calibrated": bool(self.config.ui.get('roster', {}).get('pages')),
+                        "combat_assessment": True, "multi_army_scheduler": True,
+                        "combat": False, "hunt_execution_readiness_tool": "sgz_hunt_status"},
                     "world": self.config.identity.get('world'),
                     "identity_configured": bool(self.config.identity), "stop_requested": self.stop_event.is_set()}
+        if method in {'search_map', 'query_roster'}:
+            self._validate_world(params.get('world'))
+            return getattr(self.store, method)(**params)
+        if method == 'refresh_roster':
+            self._validate_world(params.get('world'))
+            if not self.config.ui.get('roster', {}).get('pages'):
+                raise RuntimeError('calibration_required:roster')
+            return self._start('roster', params['request_id'], {'world': params['world']})
         if method == "pause_task":
             job_id = params["job_id"]
             with self.lock:
@@ -114,16 +183,26 @@ class AgentService:
                     self.observing = False
         if method == "prepare_login":
             return self._start("login", params["request_id"], {})
-        if method in {"explore_region", "inspect_target"}:
+        if method in {"explore_region", "inspect_target", "scan_region"}:
             world = params.get("world")
-            if not isinstance(world, str) or not world.strip():
-                raise ValueError("world_required")
-            if self.config.identity.get('world') and world != self.config.identity['world']:
-                raise ValueError('world_mismatch')
+            self._validate_world(world)
+            if method == 'scan_region':
+                source = params.get('source', 'api')
+                if source not in ('api', 'ui'):
+                    raise ValueError('invalid_scan_source')
+                if source == 'api':
+                    from .client_api import readiness, validate_region
+                    reason = readiness(self.config)
+                    if reason:
+                        raise RuntimeError('map_api_unavailable:' + reason)
+                    region = {key: params[key] for key in ('x0', 'y0', 'x1', 'y1')}
+                    validate_region(**region)
+                    return self._start('api_scan', params['request_id'], {'world': world, 'region': region})
             if method == "inspect_target":
                 points = region_points(params["x"], params["y"], params["x"], params["y"])
             else:
-                points = region_points(params["x0"], params["y0"], params["x1"], params["y1"])
+                points = region_points(params["x0"], params["y0"], params["x1"], params["y1"],
+                                       max_points=2500 if method == 'scan_region' else 25)
             return self._start("explore", params["request_id"], {"world": world, "points": points})
         if method == "resume_task":
             job = self.store.get_job(params["job_id"])
@@ -131,6 +210,12 @@ class AgentService:
                 raise ValueError("job_not_paused")
             return self._start(job["kind"], job["request_id"], job["payload"], resume=True)
         raise ValueError("unknown_method")
+
+    def _validate_world(self, world):
+        if not isinstance(world, str) or not world.strip():
+            raise ValueError('world_required')
+        if self.config.identity.get('world') and world != self.config.identity['world']:
+            raise ValueError('world_mismatch')
 
     def _start(self, kind, request_id, payload, resume=False):
         with self.lock:
@@ -166,6 +251,10 @@ class AgentService:
         try:
             if job["kind"] == "login":
                 self._login(job)
+            elif job['kind'] == 'roster':
+                self._refresh_roster(job)
+            elif job['kind'] == 'api_scan':
+                self._api_scan(job)
             else:
                 self._explore(job)
         except Exception as error:
@@ -183,12 +272,16 @@ class AgentService:
                 if self.desktop.list_windows(self.config.executable):
                     break
         controller = self._bind()
-        self.desktop.activate(controller.hwnd)
+        if self.config.ui.get('client_size'):
+            self.desktop.prepare_window(controller.hwnd, tuple(self.config.ui['client_size']), self.stop_event)
+        self.desktop.activate(controller.hwnd, stopped=self.stop_event)
+        controller.park_pointer()
         flow = LoginFlow()
         while not self.stop_event.is_set():
             if self.config.ui.get('navigation'):
                 navigator = self._navigator()
-                if any(navigator.ui.matches(name) for name in ('open_map','settings_back','overview_back','role_back','season_back')):
+                if any(navigator.ui.matches(name) for name in ('open_map','settings_back','overview_back',
+                        'role_back','season_back','army_list_back','city_list_back','city_interior_back')):
                     navigator.verify_identity()
                     if not navigator.ui.matches('open_map'):
                         raise RuntimeError('map_not_ready')
@@ -258,6 +351,46 @@ class AgentService:
             completed.add(point)
         self.store.update_job(job['id'], 'complete', f'verified:{len(completed)}/{len(points)}')
 
+    def _api_scan(self, job):
+        from .client_api import scan, normalize_scan
+        self._listen_stop()
+        self._validate_world(job['payload']['world'])
+        raw = scan(self.config, job['payload']['region'], self.stop_event)
+        rows = normalize_scan(raw)
+        if self.stop_event.is_set():
+            raise RuntimeError('stopped')
+        directory = self.config.data_dir / 'evidence'
+        directory.mkdir(exist_ok=True)
+        evidence = directory / f"api-{uuid.uuid4().hex}.json"
+        evidence.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding='utf-8')
+        self.store.save_api_scan(job['id'], job['payload']['world'], rows, str(evidence))
+        self.store.update_job(job['id'], 'complete',
+            f"client_api:{len(rows)} tiles:{raw['elapsed_seconds']}s:bandits=personal:occupancy=unknown")
+
+    def _refresh_roster(self, job):
+        from .roster import combine_roster_pages, read_roster_page
+        self._validate_world(job['payload']['world'])
+        if not self.config.identity.get('world'):
+            raise RuntimeError('identity_configuration_required')
+        profiles = self.config.ui.get('roster', {}).get('pages')
+        if not profiles:
+            raise RuntimeError('calibration_required:roster')
+        navigator = self._navigator()
+        navigator.ui.activate()
+        navigator.verify_identity()
+        pages, evidence = [], []
+        for profile in profiles:
+            if self.stop_event.is_set():
+                raise RuntimeError('stopped')
+            frame, page = read_roster_page(navigator.ui, profile)
+            if self.stop_event.is_set():
+                raise RuntimeError('stopped')
+            pages.append(page)
+            evidence.append(self._save_frame(frame))
+        snapshot = combine_roster_pages(pages)
+        identity = self.store.save_roster(job['payload']['world'], snapshot, evidence)
+        self.store.update_job(job['id'], 'complete', f"roster:{identity}:{snapshot['reason']}")
+
     def _navigator(self):
         from .game_ui import GameUI
         from .navigation import Navigator
@@ -268,7 +401,9 @@ class AgentService:
     def request_stop(self):
         with self.lock:
             self.closed = True
-            self._stop()
+            self._stop(pause_hunts=False)
+        if self.hunt_coordinator:
+            self.hunt_coordinator.close()
 
     def close(self):
         self.request_stop()
@@ -280,6 +415,7 @@ class AgentService:
             self.hotkey.close()
         self.desktop.release()
         if not self.resources_closed:
+            self.hunt_store.close()
             self.store.close()
             self.lease.close()
             self.resources_closed = True

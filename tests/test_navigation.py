@@ -129,3 +129,30 @@ def test_target_read_requires_unique_confident_role_text_in_each_calibrated_regi
     else:
         with pytest.raises(RuntimeError,match='map_role_mismatch'):
             Navigator(UI(),{}).read_target()
+
+
+@pytest.mark.parametrize('initial', ['armies', 'cities'])
+def test_identity_recovers_nested_roster_pages_before_new_or_resumed_tasks(initial):
+    from sgz_agent.navigation import Navigator
+    class UI:
+        config={'identity_crops':[]}
+        def __init__(self): self.page=initial; self.actions=[]
+        def wait(self,seconds): pass
+        def matches(self,name):
+            return {'armies':'army_list_back','cities':'city_list_back',
+                    'map':'open_more','menu':'open_settings','settings':'settings_back'}[self.page]==name
+        def act(self,name,**kwargs):
+            expected={'armies':'army_list_back','cities':'city_list_back','map':'open_more',
+                      'menu':'open_settings','settings':'settings_back'}[self.page]
+            assert name==expected
+            self.actions.append(name)
+            self.page={'armies':'cities','cities':'map','map':'menu','menu':'settings','settings':'map'}[self.page]
+        def capture(self): return object()
+        def read(self,frame,crops): return [box('1234',[.3,.72,.4,.77])]
+    ui=UI()
+    nav=Navigator(ui,{'checks':[{'text':'^1234$','region':[.2,.7,.5,.8]}]})
+    nav.verify_identity()
+    assert ui.page=='map'
+    ui.page='armies'
+    nav.verify_identity()
+    assert ui.page=='map' and ui.actions.count('settings_back')==2

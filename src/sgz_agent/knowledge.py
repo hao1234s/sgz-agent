@@ -3,6 +3,7 @@ from collections import Counter
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -58,6 +59,14 @@ def terms(text):
     return set(normalized[i:i + 2] for i in range(len(normalized) - 1)) or {normalized}
 
 
+def validate_record(record):
+    if (not isinstance(record, dict) or
+            not all(isinstance(record.get(k), str) and record[k].strip()
+                    for k in ("id", "name", "text", "source_url")) or
+            record.get("kind") not in {"general", "tactic", "mechanic"}):
+        raise ValueError("invalid_knowledge_record")
+
+
 class KnowledgeBase:
     def __init__(self, directory, embedder=None):
         import portalocker
@@ -102,10 +111,7 @@ class KnowledgeBase:
         changed = 0
         with self.lock, self.db:
             for record in records:
-                if (not all(isinstance(record.get(k), str) and record[k].strip()
-                            for k in ("id", "name", "text", "source_url")) or
-                        record.get("kind") not in {"general", "tactic", "mechanic"}):
-                    raise ValueError("invalid_knowledge_record")
+                validate_record(record)
                 data = json.dumps(record, ensure_ascii=False, sort_keys=True, allow_nan=False)
                 semantic = {k: v for k, v in record.items() if k != "fetched_at"}
                 digest = sha256(json.dumps(semantic, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -116,6 +122,55 @@ class KnowledgeBase:
                     indexed_hash=CASE WHEN documents.hash=excluded.hash THEN documents.indexed_hash ELSE NULL END""",
                                 (record["id"], data, digest))
         return {"changed": changed, **self.status()}
+
+    def import_curated(self, source, progress=None):
+        """Merge an explicit pack under the worker lock, persist it, then index.
+
+        JSONL is written first so a failed SQLite write or embedding call can be
+        recovered with a repeated import or the existing index command. Catalog
+        rows already in SQLite are never updated by a curated import.
+        """
+        from .knowledge_sources import read_curated
+        with self.lock:
+            pack_id, incoming = read_curated(source)
+            current = {row["id"]: json.loads(row["data"])
+                       for row in self.db.execute("SELECT id,data FROM documents")}
+            output = self.directory / "records.jsonl"
+            merged = {}
+            if output.exists():
+                for line in output.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    validate_record(record)
+                    if record["id"] in merged:
+                        raise ValueError("duplicate_knowledge_record")
+                    merged[record["id"]] = record
+            for identity, record in current.items():
+                merged.setdefault(identity, record)
+            for record in incoming:
+                for existing in (merged.get(record["id"]), current.get(record["id"])):
+                    if existing is not None and existing.get("curation_pack") != pack_id:
+                        raise ValueError("curated_record_ownership_conflict")
+                merged[record["id"]] = record
+            serialized = "".join(json.dumps(r, ensure_ascii=False, allow_nan=False, sort_keys=True) + "\n"
+                                 for r in merged.values())
+            temporary = output.with_suffix(".curated.tmp")
+            try:
+                with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+                    stream.write(serialized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                temporary.replace(output)
+            finally:
+                temporary.unlink(missing_ok=True)
+            incoming_ids = {r["id"] for r in incoming}
+            # Preserve both file-only catalog data and SQLite-only local records.
+            self.ingest(r for identity, r in merged.items()
+                        if identity not in current and identity not in incoming_ids)
+            changed = self.ingest(incoming)["changed"]
+            return {"pack_id": pack_id, "imported": len(incoming), "changed": changed,
+                    "path": str(output), **self.index(progress)}
 
     def index(self, progress=None):
         from qdrant_client import models

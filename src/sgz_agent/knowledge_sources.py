@@ -8,6 +8,7 @@ import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 ENDPOINT = "https://galaxias-api.lingxigames.com/ds/ajax/endpoint.json"
 TABLES = {
@@ -23,6 +24,59 @@ def now():
 
 def clean(value):
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", str(value)))).strip()
+
+
+def read_curated(path):
+    """Validate provenance before producing namespaced, searchable records."""
+    pack = json.loads(Path(path).read_text(encoding="utf-8"))
+    if (not isinstance(pack, dict) or type(pack.get("schema_version")) is not int or
+            pack["schema_version"] != 1 or
+            not re.fullmatch(r"[a-z][a-z0-9_-]*", str(pack.get("pack_id", ""))) or
+            not isinstance(pack.get("records"), list) or not pack["records"]):
+        raise ValueError("invalid_curated_pack")
+    records, seen = [], set()
+    for item in pack["records"]:
+        if (not isinstance(item, dict) or
+                not re.fullmatch(r"[a-z][a-z0-9_-]*", str(item.get("id", ""))) or
+                not all(isinstance(item.get(k), str) and item[k].strip()
+                        for k in ("name", "text", "source_url", "checked_at")) or
+                len(item["name"]) > 249 or item["id"] in seen or
+                item.get("confidence") not in {"low", "medium", "high"} or
+                not isinstance(item.get("limitations"), list) or not item["limitations"] or
+                not all(isinstance(s, str) and s.strip() for s in item["limitations"])):
+            raise ValueError("invalid_curated_record")
+        try:
+            checked = datetime.fromisoformat(item["checked_at"]).date()
+            published = item["published_at"]
+            if published is not None and datetime.fromisoformat(published).date() > checked:
+                raise ValueError("publication_after_check")
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("invalid_curated_dates") from error
+        url = urlsplit(item["source_url"])
+        policy = item.get("statement_type") == "user_policy"
+        if policy:
+            valid_source = (item.get("source_type") == "user_instruction" and
+                            item.get("version_status") == "user_policy" and
+                            url.scheme == "user" and bool(url.netloc) and
+                            isinstance(item.get("policy"), dict) and bool(item["policy"]))
+        else:
+            valid_source = (item.get("statement_type") == "game_fact" and
+                            item.get("source_type") in {"official_guide", "official_patch", "player_guide"} and
+                            item.get("version_status") in {"historical", "dated_source", "unverified"} and
+                            url.scheme in {"https", "http"} and bool(url.netloc) and "policy" not in item)
+        if not valid_source:
+            raise ValueError("invalid_curated_provenance")
+        label = "用户策略（非游戏规则）" if policy else "有来源的机制摘要（适用范围见限制）"
+        records.append({**item, "id": f"curated:{pack['pack_id']}:{item['id']}",
+                        "curation_pack": pack["pack_id"], "kind": "mechanic", "region": "cn",
+                        "season": item.get("season"), "level": None,
+                        "text": item["name"] + "\n" + label + "\n" + item["text"],
+                        "fields": {"说明": item["text"], "性质": label},
+                        "source_updated_at": item.get("source_updated_at"),
+                        "fetched_at": item["checked_at"], "confidence_scope": "source_support",
+                        "caution": "；".join(item["limitations"])})
+        seen.add(item["id"])
+    return pack["pack_id"], records
 
 
 def normalize_official(item, kind, table, fetched_at):

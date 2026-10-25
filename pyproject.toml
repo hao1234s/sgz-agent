@@ -12,12 +12,16 @@ dependencies = ["mss==10.2.0", "Pillow==12.3.0"]
 dev = ["pytest>=8,<10"]
 ocr = ["paddleocr==3.7.0", "paddlepaddle==3.3.1"]
 knowledge = ["qdrant-client>=1.15,<2", "fastembed>=0.7,<1"]
+api = ["frida==17.24.3"]
 
 [project.scripts]
 sgz-agent = "sgz_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+sgz_agent = ["client_api.js", "hunt_client.js", "native_lifecycle.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

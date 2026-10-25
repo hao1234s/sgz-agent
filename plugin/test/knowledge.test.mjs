@@ -4,7 +4,7 @@ import {apply} from '../dist/index.js';
 
 test('knowledge tools are read-only and accept explicit category and season filters',()=>{
   const registered=[];
-  apply({tools:{register:t=>registered.push(t)},effect:()=>{}},{rootDir:process.cwd()});
+  apply({tools:{register:t=>registered.push(t)},systemPrompt:{section:()=>{}},effect:()=>{}},{rootDir:process.cwd()});
   const search=registered.find(t=>t.name==='sgz_knowledge_search');
   assert.ok(search);
   assert.deepEqual(search.parameters.required,['query']);

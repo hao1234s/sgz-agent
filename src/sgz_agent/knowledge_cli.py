@@ -44,8 +44,9 @@ def serve(directory, source=None, destination=None):
 
 def main():
     parser = argparse.ArgumentParser(prog="sgz-knowledge")
-    parser.add_argument("command", choices=["crawl", "index", "search", "status", "serve"])
+    parser.add_argument("command", choices=["crawl", "import", "index", "search", "status", "serve"])
     parser.add_argument("--directory", default=".state/knowledge")
+    parser.add_argument("--source", help="Curated JSON pack to merge and index (required for import)")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--query")
     parser.add_argument("--kind", choices=["general", "tactic", "mechanic"])
@@ -64,7 +65,11 @@ def main():
             serve(args.directory)
             return 0
         with KnowledgeBase(args.directory) as kb:
-            if args.command == "index":
+            if args.command == "import":
+                if not args.source:
+                    raise ValueError("curated_source_required: use --source PATH")
+                result = kb.import_curated(args.source, lambda v: emit(v, sys.stderr))
+            elif args.command == "index":
                 path = Path(args.directory) / "records.jsonl"
                 kb.ingest(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
                 result = kb.index(lambda v: emit(v, sys.stderr))

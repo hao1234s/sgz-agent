@@ -97,6 +97,31 @@ class Controller:
             finally:
                 self._release()
 
+    def scroll(self, frame, x, y, delta, *, regions=None):
+        if type(delta) is not int or delta == 0 or abs(delta) > 1200 or delta % 120:
+            raise ValueError('invalid_scroll_delta')
+        with self._lock:
+            self._check_screen(frame, regions, (x,y))
+            self._move(frame, (x,y))
+            self._check(frame, (x,y))
+            self.desktop.scroll(delta)
+
+    def park_pointer(self):
+        """Keep the game's rendered cursor out of calibrated text regions."""
+        with self._lock:
+            if self.stopped.is_set():
+                raise GuardError('stopped')
+            current = self.desktop.snapshot(self.hwnd)
+            observation = Observation(uuid.uuid4().hex, current, self.clock())
+            point = self.desktop.caption_point(self.hwnd)
+            self.guard.check(observation, self.desktop.snapshot(self.hwnd), self.clock())
+            if point is None:
+                raise GuardError('caption_unavailable')
+            if self.stopped.is_set():
+                raise GuardError('stopped')
+            self.desktop.ensure_hit(self.hwnd, point)
+            self.desktop.move(point)
+
     def enter_coordinate(self, frame, x, y, value, *, regions=None):
         if not isinstance(value, str) or re.fullmatch(r'[0-9]{1,5}', value) is None:
             raise ValueError('coordinate_digits_required')
@@ -104,6 +129,9 @@ class Controller:
             if self._held_keys:
                 raise GuardError('keys_still_held')
             self.click(frame, x, y, regions=regions)
+            self.park_pointer()
+            if self.stopped.wait(.15):
+                raise GuardError('stopped')
             focused = self.observe()
             def down(key):
                 self._check(focused, (x,y))

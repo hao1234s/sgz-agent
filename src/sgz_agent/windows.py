@@ -45,6 +45,10 @@ def libraries():
         "IsIconic": ([W.HWND], W.BOOL), "GetForegroundWindow": ([], W.HWND),
         "GetAncestor": ([W.HWND, W.UINT], W.HWND),
         "GetClientRect": ([W.HWND, C.POINTER(W.RECT)], W.BOOL),
+        "GetWindowRect": ([W.HWND, C.POINTER(W.RECT)], W.BOOL),
+        "ShowWindowAsync": ([W.HWND, C.c_int], W.BOOL),
+        "SetWindowPos": ([W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT], W.BOOL),
+        "SendMessageTimeoutW": ([W.HWND, W.UINT, W.WPARAM, W.LPARAM, W.UINT, W.UINT, C.POINTER(ULONG_PTR)], C.c_ssize_t),
         "ClientToScreen": ([W.HWND, C.POINTER(W.POINT)], W.BOOL),
         "GetWindowThreadProcessId": ([W.HWND, C.POINTER(W.DWORD)], W.DWORD),
         "GetWindowTextLengthW": ([W.HWND], C.c_int),
@@ -95,13 +99,108 @@ class WindowsDesktop:
         finally:
             self.kernel.CloseHandle(handle)
 
-    def activate(self, hwnd):
+    @staticmethod
+    def _check_stop(stopped):
+        if stopped is not None and stopped.is_set():
+            raise GuardError('stopped')
+
+    def prepare_window(self, hwnd, client_size, stopped=None):
+        """Restore and normalize the selected client only at a task boundary."""
+        self._check_stop(stopped)
+        if len(client_size) != 2 or any(type(v) is not int or not 100 <= v <= 8192 for v in client_size):
+            raise ValueError('invalid_client_size')
+        original = self.snapshot(hwnd)
+        if original.minimized:
+            self.user.ShowWindowAsync(hwnd, 9)  # SW_RESTORE; never changes permissions.
+        deadline = time.monotonic() + 3
+        while self.snapshot(hwnd).minimized and time.monotonic() < deadline:
+            self._check_stop(stopped)
+            time.sleep(.05)
+        current = self.snapshot(hwnd)
+        if current.minimized:
+            raise GuardError('restore_failed')
+        if (current.pid, current.exe) != (original.pid, original.exe):
+            raise GuardError('window_changed')
+        outer = W.RECT()
+        if not self.user.GetWindowRect(hwnd, C.byref(outer)):
+            raise C.WinError(C.get_last_error())
+        width = outer.right-outer.left-current.rect[2]+client_size[0]
+        height = outer.bottom-outer.top-current.rect[3]+client_size[1]
+        left, top = self.user.GetSystemMetrics(76), self.user.GetSystemMetrics(77)
+        screen_width, screen_height = self.user.GetSystemMetrics(78), self.user.GetSystemMetrics(79)
+        if width > screen_width or height > screen_height:
+            raise GuardError('calibration_does_not_fit_desktop')
+        x = max(left, min(outer.left, left+screen_width-width))
+        y = max(top, min(outer.top, top+screen_height-height))
+        self._check_stop(stopped)
+        # HWND_TOP, without making it permanently topmost or changing focus.
+        if not self.user.SetWindowPos(hwnd, 0, x, y, width, height, 0x0010 | 0x0040):
+            raise GuardError('window_prepare_failed')
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            self._check_stop(stopped)
+            current = self.snapshot(hwnd)
+            if (current.pid, current.exe) != (original.pid, original.exe):
+                raise GuardError('window_changed')
+            if current.rect[2:] == tuple(client_size):
+                return current
+            time.sleep(.05)
+        raise GuardError('calibration_size_changed')
+
+    def _caption_point(self, hwnd):
+        state = self.snapshot(hwnd)
+        outer = W.RECT()
+        if not self.user.GetWindowRect(hwnd, C.byref(outer)):
+            return None
+        # Restrict activation to the non-client title strip, excluding all
+        # game controls, system menu and right-hand window buttons.
+        if state.rect[1]-outer.top < 8:
+            return None
+        y = (outer.top+state.rect[1])//2
+        for x in range(outer.left+80, min(outer.right-160, outer.left+480), 80):
+            try:
+                self.ensure_hit(hwnd, (x,y))
+            except GuardError:
+                continue
+            hit = ULONG_PTR()
+            packed = ((y & 0xffff) << 16) | (x & 0xffff)
+            if self.user.SendMessageTimeoutW(hwnd, 0x0084, 0, packed, 0x0002, 100, C.byref(hit)) and hit.value == 2:
+                return x,y  # WM_NCHITTEST explicitly returned HTCAPTION.
+        return None
+
+    def _activate_caption(self, hwnd, stopped=None):
+        self._check_stop(stopped)
+        old = self.snapshot(hwnd)
+        point = self._caption_point(hwnd)
+        if point is None:
+            raise GuardError('activation_denied')
+        self._check_stop(stopped)
+        current = self.snapshot(hwnd)
+        if (current.pid,current.exe,current.rect) != (old.pid,old.exe,old.rect):
+            raise GuardError('window_changed')
+        self.ensure_hit(hwnd, point)
+        self._check_stop(stopped)
+        self.move(point)
+        if self._caption_point(hwnd) != point:
+            raise GuardError('activation_target_changed')
+        self._check_stop(stopped)
+        try:
+            self.button(True)
+        finally:
+            self.button(False)
+
+    def caption_point(self, hwnd):
+        return self._caption_point(hwnd)
+
+    def activate(self, hwnd, stopped=None):
+        self._check_stop(stopped)
         if self.snapshot(hwnd).foreground:
             return
         if not self.user.SetForegroundWindow(hwnd):
-            raise GuardError("activation_denied")
+            self._activate_caption(hwnd, stopped)
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
+            self._check_stop(stopped)
             if self.snapshot(hwnd).foreground:
                 return
             time.sleep(.025)
@@ -186,6 +285,9 @@ class WindowsDesktop:
 
     def button(self, down):
         self._send(INPUT(0, INPUTUNION(mi=MOUSEINPUT(0, 0, 0, 0x0002 if down else 0x0004, 0, 0))))
+
+    def scroll(self, delta):
+        self._send(INPUT(0, INPUTUNION(mi=MOUSEINPUT(0, 0, delta & 0xffffffff, 0x0800, 0, 0))))
 
     def key(self, virtual_key, down):
         self._send(INPUT(1, INPUTUNION(ki=KEYBDINPUT(virtual_key, 0, 0 if down else 0x0002, 0, 0))))

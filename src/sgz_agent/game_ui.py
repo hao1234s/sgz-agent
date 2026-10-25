@@ -7,7 +7,10 @@ from .visual_guard import check_regions
 
 READ_ONLY_ACTIONS = {'open_map', 'open_more', 'open_settings', 'settings_back',
                      'overview_back', 'coordinate_x', 'coordinate_y',
-                     'coordinate_blur', 'coordinate_go', 'role_back', 'season_back'}
+                     'coordinate_blur', 'coordinate_go', 'role_back', 'season_back',
+                     'open_city_list', 'city_list_back', 'open_army_list', 'army_list_back',
+                     'select_main_city', 'select_sub_city', 'city_interior_back',
+                     'collapse_army', 'collapse_auxiliary', 'army_list_top', 'army_list_bottom'}
 
 
 class GameUI:
@@ -20,7 +23,9 @@ class GameUI:
         self._references = {}
 
     def activate(self):
-        self.controller.desktop.activate(self.controller.hwnd)
+        self.controller.desktop.prepare_window(self.controller.hwnd, self.size, self.controller.stopped)
+        self.controller.desktop.activate(self.controller.hwnd, stopped=self.controller.stopped)
+        self.controller.park_pointer()
 
     def capture(self):
         frame = self.controller.observe()
@@ -76,6 +81,9 @@ class GameUI:
             check_regions(proof.image, frame.image, regions, point)
         if name in {'coordinate_x', 'coordinate_y'}:
             self.controller.enter_coordinate(frame, *point, str(value), regions=regions)
+        elif name in {'army_list_top','army_list_bottom'}:
+            self.controller.scroll(frame, *point, 1200 if name == 'army_list_top' else -1200, regions=regions)
         else:
             self.controller.click(frame, *point, regions=regions)
+        self.controller.park_pointer()
         self.wait(action.get('settle', 1.5))

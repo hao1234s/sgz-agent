@@ -22,20 +22,37 @@ def entry_coordinate(texts, regions):
     return tuple(result) if len(result) == 2 else None
 
 
-def target_fields(texts, name_region):
+def target_fields(texts, name_region, *, detail_region=None):
     names = [normalize(t.text) for t in texts if t.score >= .9 and in_region(t,name_region)]
     name = names[0] if len(names) == 1 else None
     level = re.search(r'(?:([0-9]{1,2})级|(?:Lv\.?|等级)([0-9]{1,2}))', name or '', re.I)
     category = next((word for word in ('铁矿','木材','石料','粮食','空地','营帐','箭塔','拒马') if word in (name or '')), None)
-    good = [normalize(t.text) for t in texts if t.score >= .9]
+    good = [normalize(t.text) for t in texts if t.score >= .9
+            and (detail_region is None or not in_region(t, detail_region))]
     yields = {int(m[1]) for value in good if (m := re.fullmatch(r'\+([0-9]+)/小时',value))}
     defenders = {tuple(map(int,m.groups())) for value in good if (m := re.fullmatch(r'([0-9]+)[xX×]([0-9]+)',value))}
     garrison = None
     if any('守军兵力' in value for value in good) and len(defenders) == 1:
         troops,groups = defenders.pop()
         garrison = {'troops_per_group':troops,'groups':groups}
+    bandit = None
+    if detail_region is not None:
+        details = [normalize(t.text) for t in texts if t.score >= .95 and in_region(t, detail_region)]
+        titles = {m.groups() for value in details if (m := re.fullmatch(
+            r'(聚义军|贼寇|山贼|黄巾军|蛮族部队)(?:(?:等级|Lv\.?|级)?([0-9]{1,2})级?)?', value, re.I))}
+        if len(titles) == 1:
+            title, bandit_level = titles.pop()
+            forces = {tuple(map(int, m.groups())) for value in details
+                      if (m := re.fullmatch(r'([0-9]+)[xX×]([0-9]+)', value))}
+            force = None
+            if '守军兵力' in details and len(forces) == 1:
+                troops, groups = forces.pop()
+                force = {'troops_per_group': troops, 'groups': groups}
+            bandit = {'name': title, 'level': int(bandit_level) if bandit_level else None, 'garrison': force}
     return {'name':name, 'category':category, 'level':int(next(v for v in level.groups() if v)) if level else None,
             'yield_per_hour':next(iter(yields)) if len(yields)==1 else None, 'garrison':garrison,
+            'bandit':bandit, 'bandit_checked':detail_region is not None,
+            'bandit_status':'present' if bandit is not None else 'unknown',
             'visible_text':[asdict(t) for t in texts], 'recognizer':'PP-OCRv5-mobile'}
 
 
@@ -48,10 +65,16 @@ class Navigator:
         # intermediate layout as the starting page of a resumed task.
         self.ui.wait(2.2)
         if not self.ui.matches('settings_back'):
-            for back in ('overview_back', 'role_back', 'season_back'):
-                if self.ui.matches(back):
-                    self.ui.act(back)
+            # Army lists can return to a city list before returning to the map.
+            # Each back action still requires its own calibrated visual proof.
+            for _ in range(4):
+                back = next((name for name in ('army_list_back', 'city_list_back', 'city_interior_back',
+                            'overview_back', 'role_back', 'season_back') if self.ui.matches(name)), None)
+                if back is None:
                     break
+                self.ui.act(back)
+            else:
+                raise RuntimeError('navigation_recovery_limit')
             if not self.ui.matches('open_settings'):
                 self.ui.act('open_more')
             self.ui.act('open_settings')
@@ -81,7 +104,8 @@ class Navigator:
         frame = self.ui.capture()
         if not self.ui.matches('open_map', frame):
             raise RuntimeError('map_or_role_changed')
-        texts = self.ui.read(frame, self.ui.config['target_crops'])
+        texts = self.ui.read(frame, [*self.ui.config['target_crops'],
+                                     *self.ui.config.get('target_detail_crops', [])])
         role_checks = self.ui.config.get('target_role_checks', [])
         for check in role_checks:
             readings = [t for t in texts if in_region(t, check['region'])]
@@ -101,7 +125,8 @@ class Navigator:
                 coordinate = next(iter(retry_coords))
                 processing = 'contrast_retry'
             texts.extend(retry_texts)
-        fields = target_fields(texts,self.ui.config['target_name_region'])
+        fields = target_fields(texts,self.ui.config['target_name_region'],
+                               detail_region=self.ui.config.get('target_detail_region'))
         fields['coordinate_processing'] = processing
         fields['map_role_verified'] = bool(role_checks)
         return frame, ScreenState('details', tuple(texts), coordinate, False, fields)

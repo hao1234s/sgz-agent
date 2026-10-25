@@ -36,6 +36,39 @@ class FakeDesktop:
         self.events.append(('key', key, down))
         self.on_key(key, down)
 
+    def scroll(self, delta):
+        self.events.append(('scroll',delta))
+
+    def caption_point(self, hwnd):
+        return (180,185)
+
+
+def test_scroll_is_guarded_and_bounded():
+    from sgz_agent.control import Controller
+    desktop=FakeDesktop();controller=Controller(desktop,42)
+    controller.scroll(controller.observe(),20,30,-1200)
+    assert desktop.events==[('move',(120,230)),('scroll',-1200)]
+    desktop.events.clear()
+    frame=controller.observe()
+    desktop.window=replace(desktop.window,foreground=False)
+    with pytest.raises(RuntimeError,match='focus_lost'):
+        controller.scroll(frame,20,30,1200)
+    assert desktop.events==[]
+    with pytest.raises(ValueError,match='invalid_scroll_delta'):
+        controller.scroll(frame,20,30,12000)
+
+
+def test_pointer_parking_avoids_game_text_and_respects_stop():
+    from sgz_agent.control import Controller
+    desktop=FakeDesktop();controller=Controller(desktop,42)
+    desktop.caption_point=lambda hwnd:(180,185)
+    controller.park_pointer()
+    assert desktop.events==[('move',(180,185))]
+    controller.stop()
+    with pytest.raises(RuntimeError,match='stopped'):
+        controller.park_pointer()
+    assert len(desktop.events)==1
+
 
 def test_stop_prevents_any_new_input():
     from sgz_agent.control import Controller
@@ -145,7 +178,7 @@ def test_coordinate_entry_is_click_focus_select_all_and_digits_only():
     controller = Controller(desktop, 42)
     controller.enter_coordinate(controller.observe(), 20, 30, '830')
     assert desktop.events[:3] == [('move',(120,230)),('button',True),('button',False)]
-    assert desktop.events[3:] == [('key',17,True),('key',65,True),('key',65,False),('key',17,False),
+    assert desktop.events[3:] == [('move',(180,185)),('key',17,True),('key',65,True),('key',65,False),('key',17,False),
                                  ('key',56,True),('key',56,False),('key',51,True),('key',51,False),
                                  ('key',48,True),('key',48,False)]
     desktop.events.clear()
