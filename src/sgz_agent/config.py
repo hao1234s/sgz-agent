@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,6 +12,7 @@ class AgentConfig:
     identity: dict = field(default_factory=dict)
     ui: dict = field(default_factory=dict)
     ocr: str = "paddle"
+    window_title_pattern: str = "^三国志"
 
 
 def load_config(path: str | Path) -> AgentConfig:
@@ -23,4 +25,12 @@ def load_config(path: str | Path) -> AgentConfig:
     if not data_dir.is_absolute():
         data_dir = source.parent / data_dir
     return AgentConfig(executable, data_dir.resolve(), data.get("profile_id", "local"),
-                       data.get("identity", {}), data.get("ui", {}), data.get("ocr", "paddle"))
+                       data.get("identity", {}), data.get("ui", {}), data.get("ocr", "paddle"),
+                       data.get("window_title_pattern", "^三国志"))
+
+
+def select_window(windows, pattern):
+    matches = [w for w in windows if re.search(pattern, w.title)]
+    if len(matches) != 1:
+        raise RuntimeError(f"{'ambiguous_window' if matches else 'window_not_found'}: {len(matches)} matches")
+    return matches[0]
