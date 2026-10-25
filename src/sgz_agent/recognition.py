@@ -9,16 +9,26 @@ def normalize(text):
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
 
 
-def parse_coordinate(text):
+def coordinate_readings(text):
     value = normalize(text)
-    patterns = [r"(?:坐标|座标)[:：]?(\d{1,5})[,，](\d{1,5})(?!\d)",
-                r"\((\d{1,5})[,，](\d{1,5})\)",
-                r"[Xx][:：](\d{1,5})[,，]?[Yy][:：](\d{1,5})(?!\d)"]
+    # Read full numeric tokens before validation; never truncate fractions or long integers.
+    number = r"([+-]?\d[\d.eE+-]*)"
+    patterns = [rf"(?:坐标|座标)[:：]?{number}[,，]{number}",
+                rf"\({number}[,，]{number}\)",
+                rf"[Xx][:：]{number}[,，]?[Yy][:：]{number}"]
+    readings = set()
     for pattern in patterns:
-        match = re.search(pattern, value)
-        if match:
-            return int(match[1]), int(match[2])
-    return None
+        for match in re.finditer(pattern, value):
+            if all(re.fullmatch(r"[0-9]{1,5}", token) for token in match.groups()):
+                readings.add((int(match[1]), int(match[2])))
+            else:
+                readings.add(None)  # Preserve invalid evidence instead of silently ignoring it.
+    return readings
+
+
+def parse_coordinate(text):
+    readings = coordinate_readings(text)
+    return next(iter(readings)) if len(readings) == 1 else None
 
 
 @dataclass(frozen=True)
@@ -37,7 +47,7 @@ class Recognizer:
     def classify(self, texts):
         good = [t for t in texts if t.score >= .85]
         joined = "\n".join(normalize(t.text) for t in good)
-        points = {p for t in good if (p := parse_coordinate(t.text)) is not None}
+        points = {p for t in good for p in coordinate_readings(t.text)}
         coordinate = next(iter(points)) if len(points) == 1 else None
         values = [normalize(str(v)) for v in self.identity.values() if str(v).strip()]
         identity = bool(values) and all(v in joined.splitlines() for v in values)

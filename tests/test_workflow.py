@@ -20,8 +20,10 @@ def test_qr_refresh_is_bounded_and_wait_can_expire():
     from sgz_agent.workflow import LoginFlow
     flow = LoginFlow(0)
     assert flow.next(ScreenState("qr_expired"), 1).action == "refresh_qr"
-    assert flow.next(ScreenState("qr_expired"), 2).action == "refresh_qr"
-    assert flow.next(ScreenState("qr_expired"), 3).action == "pause"
+    assert flow.next(ScreenState("qr_expired"), 2).action == "wait"
+    assert flow.next(ScreenState("qr_expired"), 31).action == "refresh_qr"
+    assert flow.next(ScreenState("qr_expired"), 32).action == "wait"
+    assert flow.next(ScreenState("qr_expired"), 61).action == "pause"
     assert LoginFlow(0).next(ScreenState("qr_ready"), 301).action == "pause"
 
 
@@ -44,3 +46,15 @@ def test_exploration_records_only_after_two_matching_coordinate_reads():
     assert not flow.complete
     flow.recorded((12,34))
     assert flow.complete
+
+
+def test_login_entry_waits_for_transition_and_has_two_bounded_retries():
+    from sgz_agent.workflow import LoginFlow
+    flow = LoginFlow(0)
+    screen = ScreenState('login_entry')
+    assert flow.next(screen, 0).action == 'open_qr'
+    assert flow.next(screen, 2).action == 'wait'
+    assert flow.next(screen, 30).action == 'open_qr'
+    assert flow.next(screen, 32).action == 'wait'
+    assert flow.next(screen, 60).action == 'open_qr'
+    assert flow.next(screen, 90).action == 'pause'

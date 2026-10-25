@@ -80,3 +80,21 @@ def test_client_coordinate_is_converted_once_and_click_is_released():
     controller = Controller(desktop, 42)
     controller.click(controller.observe(), 20, 30)
     assert desktop.events == [("move", (120, 230)), ("button", True), ("button", False)]
+
+
+@pytest.mark.parametrize('action', ['click', 'drag'])
+def test_ui_transition_with_unchanged_window_prevents_input(action):
+    from sgz_agent.control import Controller
+    desktop = FakeDesktop()
+    controller = Controller(desktop, 42)
+    frame = controller.observe()
+    # A small dialog replaces only part of the screen; window metadata is unchanged.
+    changed = frame.image.copy()
+    changed.putpixel((30, 40), (255, 255, 255))
+    desktop.capture = lambda window: changed
+    with pytest.raises(RuntimeError, match='screen_changed'):
+        if action == 'click':
+            controller.click(frame, 20, 30)
+        else:
+            controller.drag(frame, (20, 30), (40, 50))
+    assert desktop.events == []

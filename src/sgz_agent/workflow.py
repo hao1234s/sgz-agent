@@ -13,6 +13,9 @@ class LoginFlow:
     def __init__(self, started_at=None):
         self.started_at = time.monotonic() if started_at is None else started_at
         self.refreshes = 0
+        self.next_refresh_at = 0
+        self.open_attempts = 0
+        self.next_open_at = 0
 
     def next(self, screen, now=None):
         now = time.monotonic() if now is None else now
@@ -23,11 +26,20 @@ class LoginFlow:
         if screen.kind in {"qr_ready", "loading"}:
             return Decision("wait", "scan_on_phone" if screen.kind == "qr_ready" else "loading")
         if screen.kind == "qr_expired":
+            if now < self.next_refresh_at:
+                return Decision("wait", "await_qr_refresh")
             if self.refreshes >= 2:
                 return Decision("pause", "qr_refresh_limit")
             self.refreshes += 1
+            self.next_refresh_at = now + 30
             return Decision("refresh_qr")
         if screen.kind == "login_entry":
+            if now < self.next_open_at:
+                return Decision("wait", "await_qr_page")
+            if self.open_attempts >= 3:
+                return Decision("pause", "login_entry_retry_limit")
+            self.open_attempts += 1
+            self.next_open_at = now + 30
             return Decision("open_qr")
         if screen.kind == "role_select":
             return Decision("pause", "select_role_on_computer")

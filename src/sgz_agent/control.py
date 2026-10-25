@@ -1,6 +1,7 @@
 import threading
 import time
 import uuid
+from PIL import ImageChops
 
 from .guard import ActionGuard, GuardError
 from .models import Frame, Observation
@@ -41,9 +42,18 @@ class Controller:
             self.desktop.button(False)
             self._held = False
 
+    def _check_screen(self, frame):
+        self._check(frame)
+        fresh = self.observe()
+        self._check(frame)
+        if frame.image.size != fresh.image.size or ImageChops.difference(
+                frame.image.convert('RGB'), fresh.image.convert('RGB')).getbbox() is not None:
+            raise GuardError('screen_changed')
+
     def click(self, frame, x, y):
         with self._lock:
             try:
+                self._check_screen(frame)
                 self._move(frame, (x, y))
                 self._check(frame, (x, y))
                 self._held = True
@@ -57,6 +67,7 @@ class Controller:
         with self._lock:
             self._check(frame, end)
             try:
+                self._check_screen(frame)
                 self._move(frame, start)
                 self._check(frame, start)
                 self._held = True

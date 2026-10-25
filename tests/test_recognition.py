@@ -44,3 +44,21 @@ def test_identity_requires_all_configured_values_and_high_confidence():
     assert not r.classify([text("主公甲")]).identity_matched
     assert not r.classify([text("主公甲"), text("PK123", .2)]).identity_matched
     assert r.classify([text("主公甲"), text("PK123")]).identity_matched
+
+
+@pytest.mark.parametrize('value', [
+    '坐标:12,34 坐标:56,78', '坐标:12,34.5', '坐标:12,345678',
+    '坐标:12,34 (56,78)', 'X:12 Y:34.5', '(12,34.5)',
+    '坐标:12,34 坐标:56,-78', '坐标:12,34e2',
+    '坐标:12,34.', '坐标:12,34e',
+])
+def test_coordinate_never_truncates_or_selects_one_of_conflicting_readings(value):
+    from sgz_agent.recognition import Recognizer, parse_coordinate
+    assert parse_coordinate(value) is None
+    assert Recognizer({}, {}).classify([text(value)]).coordinate is None
+
+
+def test_malformed_reading_does_not_disappear_when_another_box_looks_valid():
+    from sgz_agent.recognition import Recognizer
+    state = Recognizer({}, {}).classify([text('坐标:12,34'), text('坐标:12,34.5')])
+    assert state.coordinate is None
