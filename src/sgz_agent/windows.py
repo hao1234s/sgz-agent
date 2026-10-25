@@ -3,6 +3,7 @@ import ctypes as C
 from ctypes import wintypes as W
 import os
 import threading
+import time
 from pathlib import Path
 
 from .guard import GuardError
@@ -97,6 +98,12 @@ class WindowsDesktop:
     def activate(self, hwnd):
         if not self.user.SetForegroundWindow(hwnd):
             raise GuardError("activation_denied")
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if self.snapshot(hwnd).foreground:
+                return
+            time.sleep(.025)
+        raise GuardError("activation_not_confirmed")
 
     def snapshot(self, hwnd):
         if not self.user.IsWindow(hwnd):
