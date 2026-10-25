@@ -6,7 +6,7 @@ Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python
 
 ## 在 DSH 中使用
 
-`dsh-sgz-agent@0.2.0` 已安装到本机 DSH desktop profile。重新打开 DSH 后可以输入：
+`dsh-sgz-agent` 使用本机 DSH desktop profile。重新打开 DSH 后可以输入：
 
 > 查看游戏状态，读取配置的 world，然后探索坐标 (591,830) 到 (593,832)，完成后导出 JSON 和 CSV。只查看地图，不派兵。
 
@@ -22,6 +22,29 @@ Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python
 | `sgz_pause_task` | 停止新输入并保存断点 |
 | `sgz_resume_task` | 显式恢复，重新核验身份并跳过已保存点 |
 | `sgz_export_results` | 导出本地 JSON 或 CSV |
+| `sgz_knowledge_search` | 检索武将、战法、基础机制，返回来源及版本说明 |
+| `sgz_knowledge_status` | 查看知识条数、覆盖范围、模型和索引状态 |
+
+## 游戏知识库
+
+知识库采用本地 **SQLite + Qdrant + BGE-small-zh-v1.5（512 维）**，与游戏窗口和地图观察数据独立。问游戏知识时使用 `sgz_knowledge_search`，按武将／战法名称精确查找，也支持中文语义检索。示例：
+
+> 查询曹操的兵种适性和自带战法，并给出来源。哪些战法能清除负面状态？计穷和缴械有何区别？
+
+工具可传 `kind: general / tactic / mechanic`、`season`、`limit: 1..10`。赛季按源站已注明的值筛选，未知赛季不会匹配指定赛季。结果中的排序分数不是置信度；每条有 `source_url`、抓取日期、来源类别、赛季、版本核验状态和 `caution`。
+
+首批数据来自官网**基础武将库、战法库**，机制为带出处的简短事实摘要。不是全赛季完整数据；官网未注明的数值等级、更新时间保持未知，不可直接当作满级、最新版。机制文章为 2019 年官方社区攻略，标为历史来源。采集日期不等于游戏数据更新日期。详情和实测见 [知识库报告](docs/knowledge-report.md)。
+
+```powershell
+# 已安装 knowledge 依赖后，可独立于游戏使用
+.venv\Scripts\python.exe -m sgz_agent.knowledge_cli status
+.venv\Scripts\python.exe -m sgz_agent.knowledge_cli search --query "清除负面状态" --kind tactic --limit 5
+# 默认复用下载缓存，可中断后续跑；--refresh 重新请求官网
+.venv\Scripts\python.exe -m sgz_agent.knowledge_cli crawl
+.venv\Scripts\python.exe -m sgz_agent.knowledge_cli index
+```
+
+知识数据在 `.state/knowledge/records.jsonl`，字段存储在 `knowledge.sqlite3`，向量在 `qdrant/`，模型缓存位于 `models/`，采集覆盖及失败清单为 `crawl-report.json`。数据库支持同一进程内连续查询；运行采集或索引维护前先退出 DSH，以释放独立知识 worker 的文件锁。首次使用模型需要下载，之后可复用缓存。查询仅返回资料，网页文字不作为执行指令。
 
 同一操作重试应复用 `request_id`，改变参数须使用新 ID。重启后任务保持暂停。插件退出或超时不会盲目重试；重新加载插件后查看原任务并显式恢复。
 
@@ -46,7 +69,7 @@ Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python
 - `config/game.local.json`：身份、世界标识及本机校准，不提交 Git。
 - `.state/calibration/`：校准图；`.state/evidence/`：地图证据。
 - `.state/agent.sqlite3`：任务与观察；`.state/exports/`：JSON/CSV 导出。
-- `.state/package/dsh-sgz-agent-0.2.0.tgz`：插件安装包。
+- `.state/package/dsh-sgz-agent-0.3.0.tgz`：含知识查询的插件安装包。
 - `.state/dsh-profile-backup-20261025-101849/`：安装前包管理元数据备份，未读取或修改凭据。
 
 ```powershell
@@ -64,7 +87,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Test-Agent.ps1 -DshExecutable '
 需要 Windows x64、Python 3.11、Node 22 或更新版本，依赖已锁定：
 
 ```powershell
-uv sync --frozen --extra dev --extra ocr
+uv sync --frozen --extra dev --extra ocr --extra knowledge
 cd plugin
 npm ci
 npm run build

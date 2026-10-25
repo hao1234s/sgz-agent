@@ -1,0 +1,23 @@
+{
+  "source_url": "https://community.lingxigames.com/m/s1/strategy_detail/4292",
+  "published_at": "2019-10-23T21:04:12+08:00",
+  "checked_at": "2026-10-25",
+  "records": [
+    {"id":"disarm","name":"缴械","text":"控制状态：限制普通攻击。"},
+    {"id":"silence","name":"计穷","text":"控制状态：限制主动战法发动。"},
+    {"id":"stun","name":"震慑","text":"控制状态：使目标无法行动。"},
+    {"id":"weakness","name":"虚弱","text":"状态效果：目标造成的伤害为零。"},
+    {"id":"confusion","name":"混乱","text":"状态效果：目标选择可能不分敌我。"},
+    {"id":"heal_block","name":"禁疗","text":"状态效果：禁止兵力恢复。"},
+    {"id":"taunt","name":"嘲讽","text":"控制效果：普通攻击目标被引向施加嘲讽的武将。"},
+    {"id":"insight","name":"洞察","text":"状态效果：免受控制影响。"},
+    {"id":"combo","name":"连击","text":"状态效果：增加同一回合的普通攻击次数。"},
+    {"id":"first","name":"先攻","text":"行动顺序效果：优先行动；多人同时具有先攻时再比较速度。"},
+    {"id":"resist","name":"抵御","text":"防御状态：抵消所承受的伤害。"},
+    {"id":"counter","name":"反击","text":"受到普通攻击后，对攻击来源造成伤害。"},
+    {"id":"active","name":"主动战法","text":"战法类型：行动时按战法条件判定是否发动。"},
+    {"id":"assault","name":"突击战法","text":"战法类型：普通攻击后按条件判定发动，因此依赖普攻机会。"},
+    {"id":"damage","name":"兵刃与谋略伤害","text":"两类伤害受不同属性影响；具体加成、减伤和触发条件应查对应战法描述。"},
+    {"id":"dot","name":"持续伤害状态","text":"常见名称包括灼烧、中毒、水攻、沙暴、溃逃、叛逃；叠加与结算细节应核对适用版本。"}
+  ]
+}

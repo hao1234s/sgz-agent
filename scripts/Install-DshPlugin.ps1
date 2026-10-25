@@ -6,7 +6,8 @@ if (Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $profileDirectory = Join-Path $env:USERPROFILE '.dsh\profiles\desktop'
 if (-not (Test-Path -LiteralPath (Join-Path $profileDirectory 'package.json'))) { throw 'DSH desktop profile has not been initialized.' }
-$archive = Join-Path $projectRoot '.state\package\dsh-sgz-agent-0.2.0.tgz'
+$pluginVersion = (Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'plugin\package.json') | ConvertFrom-Json).version
+$archive = Join-Path $projectRoot ".state\package\dsh-sgz-agent-$pluginVersion.tgz"
 if (-not (Test-Path -LiteralPath $archive)) { throw 'Build and npm pack the plugin first.' }
 $backup = Join-Path $projectRoot ('.state\dsh-profile-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $backup | Out-Null
