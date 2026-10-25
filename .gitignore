@@ -1,0 +1,13 @@
+.venv/
+.tools/
+.state/
+.superpowers/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+node_modules/
+plugin/dist/
+config/*.local.json
+artifacts/
+.DS_Store
