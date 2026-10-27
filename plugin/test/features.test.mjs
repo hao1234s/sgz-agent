@@ -45,6 +45,25 @@ test('multi-army hunt tools separate read status from persistent commands',()=>{
   for(const name of ['hunt_start','hunt_stop','hunt_resume'])assert.equal(get(name).isConcurrencySafe(),false);
 });
 
+test('replenishment exposes only full API refill and a read-only preview',()=>{
+  const {get,sections}=setup();const tool=get('replenish');
+  assert.ok(tool);assert.equal(tool.isConcurrencySafe(),false);
+  assert.deepEqual(tool.parameters.required,['world','request_id']);
+  assert.equal(tool.parameters.properties.dry_run.default,false);
+  assert.equal(tool.parameters.properties.army_ids.maxItems,50);
+  assert.equal(tool.parameters.properties.hero_troop_list,undefined);
+  assert.equal(tool.parameters.properties.source,undefined);
+  assert.ok(sections.some(s=>s.text.includes('sgz_replenish')));
+});
+
+test('replenishment reconciliation accepts an existing command and never arbitrary game payloads',()=>{
+  const {get}=setup(),tool=get('replenish_reconcile');
+  assert.ok(tool);
+  assert.equal(tool.isConcurrencySafe(),false);
+  assert.deepEqual(tool.parameters.required,['world','command_id']);
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(),['command_id','world']);
+});
+
 test('project skills list/load preserve native invocation policy and body isolation',async()=>{
   const catalog=[
     {name:'sgz-read',description:'read maps',provider:'sgz-filesystem',invocation:{modelInvocable:true}},

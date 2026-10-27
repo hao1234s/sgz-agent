@@ -80,19 +80,39 @@ function statusOnly(L, army) {
   row.hero_ids = ints(L, army, 'hero_ids');
   row.status_codes = []; row.position = null; row.at_dispatch = false;
   if (row.army_type !== 1) return row;
+  row.dispatch_position = position(L, army, 'dispatch_build_pos');
+  row.dispatch_entered_at = value(L, army, 'enter_dispatch_time');
   if (get(L, army, 'status') !== 5) throw Error('hunt_status_missing');
   const st = top(L);
   row.status_codes = ints(L, st, 'status');
   row.position = position(L, st, 'pos');
-  const dispatch = position(L, st, 'dispatch_pos');
+  // Legacy status.dispatch_pos can retain the home city after deployment.
+  const dispatch = row.dispatch_position;
   row.at_dispatch = row.position && dispatch && row.position[0] === dispatch[0] && row.position[1] === dispatch[1];
+  row.movement_end_time = value(L, st, 'end_time');
+  row.movement_total_time = value(L, st, 'total_time');
+  row.command = value(L, st, 'cmd');
+  row.destination = position(L, st, 'end_pos');
+  row.auto_return = val(L, st, 'is_auto_fallback');
+  row.finish_success = val(L, st, 'finish_success');
+  row.monster_type = value(L, st, 'monster_type');
+  row.monster_config_id = value(L, st, 'monster_config_id');
+  row.fight_position = position(L, st, 'fight_pos');
   // No troop, morale, battle-report, target-map or hero-manager reads here.
   row.enemy_army_id = value(L, st, 'enemy_army_id');
   settop(L, army);
   return row;
 }
 function isReady(row) {
-  return row.army_type === 1 && row.is_tying !== true && row.status_codes.length === 1 && [1,3,43].includes(row.status_codes[0]);
+  if(row.army_type!==1 || row.is_tying===true || row.status_codes.length!==1)return false;
+  if([1,3,43].includes(row.status_codes[0]))return true;
+  const p=row.position,d=row.dispatch_position;
+  return row.status_codes[0]===19 && Array.isArray(p) && p.length===2 &&
+    p.every(v=>Number.isInteger(v)&&v>=1&&v<=1620) && Array.isArray(d) && d.length===2 &&
+    p[0]===d[0] && p[1]===d[1] && Number.isSafeInteger(row.dispatch_build_id) && row.dispatch_build_id>0 &&
+    Number.isFinite(row.dispatch_entered_at) && row.dispatch_entered_at>0 &&
+    Number.isFinite(row.observed_at) && row.dispatch_entered_at<=row.observed_at &&
+    row.movement_end_time===0 && row.movement_total_time===0;
 }
 function roster(L) {
   const mgr = module(L, 'logic.player.army.my_army_mgr');

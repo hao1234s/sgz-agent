@@ -99,6 +99,9 @@ class HuntCoordinator:
     def _resume(self, hunt_id, now):
         campaign = self.store.get(hunt_id)
         if campaign['world'] != self.world: raise ValueError('world_mismatch')
+        capabilities = self.client.capabilities()
+        if capabilities.get('available') is not True:
+            raise RuntimeError('hunt_capabilities_missing:'+','.join(capabilities.get('missing',[])))
         if any(c['id'] != hunt_id and c['status'] == 'running' for c in self.store.list()):
             raise RuntimeError('hunt_already_running')
         for state in campaign['armies']:
@@ -203,6 +206,11 @@ class HuntCoordinator:
             self.store.finish_command(command_id,outcome)
         state['pending_command_id'] = None
         if outcome != 'applied':
+            receipt = command.get('result') or {}
+            if (outcome == 'not_applied' and command['kind'] in {'replenish','recruit'}
+                    and receipt.get('sent') is False and receipt.get('retryable') is True):
+                state['reason'] = receipt.get('reason','wait_for_recruitment_resources')
+                return False
             state['blocked'] = True
             state['reason'] = 'command_not_applied:review_before_resume'
             if command['kind'] in {'attack','mobilize'}:
@@ -233,7 +241,7 @@ class HuntCoordinator:
             try:
                 receipt = self.client.execute(command)
                 status = receipt.get('status')
-                if status not in {'accepted','rejected','unknown'}: status = 'unknown'
+                if status not in {'accepted','rejected','unknown','applied','not_applied'}: status = 'unknown'
                 self.store.finish_command(command['id'],status,receipt)
             except Exception as error:
                 self.store.finish_command(command['id'],'unknown',{'error':f'{type(error).__name__}:{error}'})
@@ -262,8 +270,6 @@ class HuntCoordinator:
                 or len({h.get('id') for h in heroes}) != len(heroes)):
             state['reason'] = 'invalid_per_general_troops'; return
         troops, capacity = sum(h['troops'] for h in heroes),sum(h['capacity'] for h in heroes)
-        if capacity < policy['min_troops']:
-            state['reason'] = 'capacity_below_policy_threshold'; return
         morale = data.get('morale')
         if not _finite(morale): state['reason'] = 'morale_unknown'; return
         base_id = data.get('deployment_base_id') or data.get('home_city_id')
@@ -294,6 +300,8 @@ class HuntCoordinator:
                              'heroes':refill_heroes,'expected_phase':data['phase']},now)
                 return
             if troops >= capacity: state['refill_required'] = False
+            if capacity < policy['min_troops']:
+                state['reason'] = 'capacity_below_policy_threshold'; return
             if low:
                 state['reason'] = 'wait_for_morale_or_general_recovery'; return
         if data.get('stamina_sufficient') is not True or data.get('orders_sufficient') is not True:
@@ -305,7 +313,7 @@ class HuntCoordinator:
                 or not all(type(n) is int and 1 <= n <= 1620 for n in center)):
             state['reason'] = 'current_position_unknown'; return
         key = tuple(center)
-        if key not in scans: scans[key] = self.client.search_giants(list(center),policy['radius'])
+        if key not in scans: scans[key] = self.client.search_giants(list(center),policy['radius'],army_id=army_id)
         scan = scans[key]
         if scan.get('complete') is not True:
             state['reason'] = 'giant_search_coverage_incomplete'; return

@@ -21,7 +21,7 @@ sgz-agent = "sgz_agent.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sgz_agent = ["client_api.js", "hunt_client.js", "native_lifecycle.js"]
+sgz_agent = ["client_api.js", "hunt_client.js", "native_lifecycle.js", "replenish_client.js", "hunt_search.js", "hunt_search_bridge.js", "hunt_runtime.js", "hunt_observer.js", "hunt_attack.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

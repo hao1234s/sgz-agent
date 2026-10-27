@@ -5,7 +5,84 @@ const {createRequire} = require('node:module');
 const {pathToFileURL} = require('node:url');
 const assert = require('node:assert/strict');
 
-(async () => {
+// Export the same gate used by the installed smoke run for offline contract tests.
+// A disabled capability is evidence about its guard, never about live execution.
+async function verifyCapabilityContracts(ctx,status) {
+  const tool=name=>{
+    const value=ctx.tools.get(`sgz_${name}`);
+    assert.ok(value,`tool_missing:${name}`);
+    return value;
+  };
+  const replenishTool=tool('replenish');
+  const protocol=await tool('protocol_status').execute({});
+  assert.equal(typeof protocol.api_scan_available,'boolean');
+  assert.equal(protocol.world_bandits_complete,false);
+  const huntBefore=await tool('hunt_status').execute({});
+  assert.equal(typeof huntBefore.capabilities?.available,'boolean');
+  assert.ok(Array.isArray(huntBefore.capabilities.missing));
+  assert.ok(Array.isArray(huntBefore.campaigns));
+  if(!huntBefore.capabilities.available){
+    assert.ok(huntBefore.capabilities.missing.length>0,'hunt_missing_reason_required');
+    assert.equal(huntBefore.capabilities.mutations_enabled,false);
+  }
+  const report={
+    api_scan:{available:protocol.api_scan_available,live_execution:'not_verified',reason:protocol.reason},
+    replenish:{live_execution:'not_verified',disabled_path:'not_checked'},
+    hunt:{available:huntBefore.capabilities.available,status_check:'passed',live_execution:'not_verified',
+      missing:huntBefore.capabilities.missing,campaignsObserved:huntBefore.campaigns.length},
+  };
+  if(protocol.api_scan_available){
+    const scan=await tool('scan_region').execute({request_id:`api-smoke-${Date.now()}`,world:status.world,
+      source:'api',x0:582,y0:818,x1:601,y1:837});
+    let apiJob;
+    for(let n=0;n<100;n++){
+      apiJob=(await tool('game_status').execute({job_id:scan.id})).jobs[0];
+      if(apiJob.status!=='running')break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    assert.equal(apiJob.status,'complete',apiJob.reason);
+    const live=await tool('search_map').execute({world:status.world,x0:592,y0:830,x1:592,y1:830,
+      kind:'resource',resource:'铁矿',min_level:4,max_level:4});
+    assert.equal(live.results[0].source,'client_api');
+    assert.equal(live.results[0].level,4);
+    report.api_scan={...report.api_scan,live_execution:'passed',jobReason:apiJob.reason,resource:live.results[0]};
+  }else{
+    assert.ok(typeof protocol.reason==='string'&&protocol.reason.length>0,'api_disabled_reason_required');
+  }
+  const replenish=status.capabilities?.replenish;
+  assert.equal(typeof replenish?.available,'boolean','replenish_capability_required');
+  const readAvailable=replenish.read_available??replenish.available;
+  assert.equal(typeof readAvailable,'boolean','replenish_read_capability_required');
+  const readReason=replenish.read_reason===undefined?replenish.reason:replenish.read_reason;
+  report.replenish.available=replenish.available;
+  report.replenish.reason=replenish.reason;
+  report.replenish.write_disabled=!replenish.available;
+  report.replenish.read_available=readAvailable;
+  report.replenish.read_reason=readReason;
+  if(!readAvailable){
+    assert.ok(typeof readReason==='string'&&readReason.length>0,'replenish_disabled_read_reason_required');
+    await assert.rejects(async()=>replenishTool.execute({world:status.world,
+      request_id:`replenish-disabled-smoke-${Date.now()}`,dry_run:true}),
+      error=>typeof error?.message==='string'&&error.message.includes(readReason),
+      'disabled replenish dry_run must reject with the advertised read capability reason');
+    report.replenish.disabled_path='passed';
+  }else if(!replenish.available){
+    const preview=await replenishTool.execute({world:status.world,
+      request_id:`replenish-preview-smoke-${Date.now()}`,dry_run:true});
+    assert.equal(preview.dry_run,true);
+    assert.ok(Array.isArray(preview.armies));
+    assert.ok(preview.armies.every(army=>army.sent===false),'preview_must_not_send_commands');
+    report.replenish.preview_check='passed';
+  }
+  const huntAfter=await tool('hunt_status').execute({});
+  // Only read status: no start/resume commands and no smoke-created campaigns.
+  assert.deepEqual(huntAfter.campaigns,huntBefore.campaigns,'smoke_must_not_create_or_change_hunt_campaigns');
+  return report;
+}
+
+module.exports={verifyCapabilityContracts};
+
+async function main() {
   const root = path.resolve(__dirname, '..');
   const runtime = path.join(path.dirname(process.execPath), 'resources', 'app.asar', 'dsh', 'package.json');
   const r = createRequire(runtime);
@@ -43,28 +120,12 @@ const assert = require('node:assert/strict');
   try {
     const names = ['game_status','prepare_login','observe_map','inspect_target','explore_region','pause_task','resume_task','export_results','knowledge_search','knowledge_status',
       'scan_region','search_map','refresh_roster','query_roster','skills_list','skill_load','protocol_status','assess_combat',
-      'hunt_start','hunt_status','hunt_stop','hunt_resume'];
+      'replenish','replenish_reconcile','hunt_start','hunt_status','hunt_stop','hunt_resume'];
     for(const name of names)if(!ctx.tools.get(`sgz_${name}`))throw Error(`tool_missing:${name}`);
     const status = await ctx.tools.get('sgz_game_status').execute({});
     if(!Array.isArray(status.windows))throw Error('invalid_worker_status');
     assert.equal(status.service.state,'running');
-    const protocol=await ctx.tools.get('sgz_protocol_status').execute({});
-    assert.equal(protocol.api_scan_available,true);
-    assert.equal(protocol.world_bandits_complete,false);
-    const scan=await ctx.tools.get('sgz_scan_region').execute({request_id:`api-smoke-${Date.now()}`,world:status.world,
-      x0:582,y0:818,x1:601,y1:837});
-    let apiJob;
-    for(let n=0;n<100;n++){
-      apiJob=(await ctx.tools.get('sgz_game_status').execute({job_id:scan.id})).jobs[0];
-      if(apiJob.status!=='running')break;
-      await new Promise(resolve=>setTimeout(resolve,100));
-    }
-    assert.equal(apiJob.status,'complete',apiJob.reason);
-    const live=await ctx.tools.get('sgz_search_map').execute({world:status.world,x0:592,y0:830,x1:592,y1:830,
-      kind:'resource',resource:'铁矿',min_level:4,max_level:4});
-    assert.equal(live.results[0].source,'client_api');
-    assert.equal(live.results[0].level,4);
-    console.log(JSON.stringify({api_scan:apiJob.reason,resource:live.results[0]}));
+    const capabilityChecks=await verifyCapabilityContracts(ctx,status);
     const catalog=await ctx.tools.get('sgz_skills_list').execute({});
     assert.equal(catalog.complete,true);
     assert.deepEqual(catalog.skills.map(s=>s.name),['sgz-test']);
@@ -93,10 +154,12 @@ const assert = require('node:assert/strict');
     const search = await ctx.tools.get('sgz_knowledge_search').execute({query:'曹操',limit:1});
     if(!Array.isArray(search.results))throw Error('invalid_knowledge_results');
     if(knowledge.records>0 && search.results[0]?.name!=='曹操')throw Error('knowledge_exact_match_failed');
-    console.log(JSON.stringify({ok:true,installed,registeredTools:names.length,windows:status.windows.length,calibrated:status.calibrated,
+    console.log(JSON.stringify({ok:true,scope:'smoke_contract_checks',capabilityChecks,installed,registeredTools:names.length,windows:status.windows.length,calibrated:status.calibrated,
       mapObservedTiles:map.coverage.observed_tiles,rosterObserved:roster.observed,skillsVerified:['discover','load','disabled','body-update','watch-new-file'],
       knowledgeRecords:knowledge.records,knowledgeVectors:knowledge.vectors,knowledgeQuery:search.results[0]?.name}));
   } finally {
     await ctx.fiber.dispose();
   }
-})().catch(error=>{console.error(error);process.exitCode=1;});
+}
+
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

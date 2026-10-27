@@ -11,6 +11,28 @@ import time
 
 from .client_api import _bridge_lock, readiness
 from .native_session import close_native_session, retained_quarantine
+from .hunt_search import AOISearchAccumulator, plan_query_centers
+
+_search_sequence_lock = threading.Lock()
+
+
+def reserve_search_sessions(config, count):
+    """Allocate before sending; a crash consumes IDs instead of reusing them."""
+    if type(count) is not int or not 1 <= count <= 81:
+        raise ValueError('hunt_search_session_count_invalid')
+    with _search_sequence_lock:
+        path = Path(config.data_dir) / 'hunt-search-sequence.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            seed = json.loads(path.read_text(encoding='utf-8'))['next']
+        except FileNotFoundError:
+            seed = 1_000_000_000
+        if type(seed) is not int or not 1 <= seed < 2**31-count:
+            raise RuntimeError('hunt_search_session_sequence_invalid')
+        temporary = path.with_suffix('.pending')
+        temporary.write_text(json.dumps({'next':seed+count}), encoding='utf-8')
+        temporary.replace(path)
+        return seed
 
 
 READY_PHASES = {"idle", "stationed"}
@@ -53,15 +75,19 @@ def preview_request(army_id, position, *, kind="attack", from_position=None):
 
 
 def normalize_preview(raw, target_id, *, kind="direct", base_id=None):
+    # Scheduler fields split deployment, base preparation and final attack march.
+    # None of them denotes combat duration. A direct route has no deployment leg.
     duration = raw.get("need_time")
     feasible = raw.get("result") == 1 and type(duration) in {int, float} and math.isfinite(duration) and duration >= 0
     return {"kind": kind, "base_id": base_id, "target_id": str(target_id),
-            "travel_seconds": duration if feasible else None,
-            "prepare_seconds": raw.get("prepare_time"), "attack_seconds": None,
+            "travel_seconds": 0 if kind=="direct" else None,
+            "prepare_seconds": 0 if kind=="direct" else None,
+            "attack_seconds": duration if feasible else None,
+            "command_prepare_seconds": raw.get("prepare_time"),
             "arrival_morale": None, "path_length": raw.get("path_len"),
             "need_energy": raw.get("need_energy"), "feasible": feasible,
             "verified": False, "source": "cs_army_preview",
-            "missing": ["arrival_morale", "attack_duration", "prepare_time_default_semantics"],
+            "missing": ["arrival_morale", "command_prepare_semantics"],
             "raw_preview": raw}
 
 
@@ -137,6 +163,19 @@ def prepare_protocol_command(command):
             "sent": False, "missing": missing}
 
 
+def _arrived_dispatch(raw):
+    position, dispatch = raw.get('position'), raw.get('dispatch_position')
+    entered, observed = raw.get('dispatch_entered_at'), raw.get('observed_at')
+    return (isinstance(position, list) and len(position) == 2
+            and all(type(v) is int and 1 <= v <= 1620 for v in position)
+            and dispatch == position
+            and type(raw.get('dispatch_build_id')) is int and raw['dispatch_build_id'] > 0
+            and type(entered) in (int, float) and math.isfinite(entered) and entered > 0
+            and type(observed) in (int, float) and math.isfinite(observed) and entered <= observed
+            and type(raw.get('movement_end_time')) in (int, float) and raw['movement_end_time'] == 0
+            and type(raw.get('movement_total_time')) in (int, float) and raw['movement_total_time'] == 0)
+
+
 def normalize_army(raw):
     codes = set(raw.get("status_codes", []))
     phase = "unknown"
@@ -149,6 +188,8 @@ def normalize_army(raw):
         phase = "unknown"
     elif codes & {4, 29}:
         phase = "returning"
+    elif codes == {19} and _arrived_dispatch(raw):
+        phase = "stationed"
     elif codes & {19, 106}:
         phase = "relocating"
     elif 2 in codes:
@@ -169,7 +210,10 @@ def normalize_army(raw):
             "home_city_id": home, "phase": phase, "position": position,
             "deployment_base_id": dispatch if dispatch != home else None,
             "current_base_id": dispatch if phase in READY_PHASES and raw.get("at_dispatch") else None,
-            "target_id": str(raw["enemy_army_id"]) if raw.get("enemy_army_id") else None,
+            # An opponent army is a defender, not the map EntityInfo.id used by
+            # target reservations. No validated join exists between these IDs.
+            "target_id": None,
+            "enemy_army_id": str(raw["enemy_army_id"]) if raw.get("enemy_army_id") else None,
             "encounter_complete": False, "completed_target_id": None, "result": None,
             "status_reason": "tying_flag_semantics_unverified" if phase == "unknown" and raw.get("is_tying") is True else None,
             "status_codes": sorted(codes), "source": "client_lua_status",
@@ -177,9 +221,11 @@ def normalize_army(raw):
 
 
 class HuntClient:
-    def __init__(self, config, stop_event=None):
+    def __init__(self, config, stop_event=None, *, controlled_verification=False):
         self.config = config
         self.stop_event = stop_event or threading.Event()
+        self.controlled_verification = controlled_verification
+        self.last_diagnostic = None
 
     def capabilities(self):
         reason = readiness(self.config)
@@ -187,6 +233,9 @@ class HuntClient:
         missing = ([reason] if reason else []) + [k for k, verified in VALIDATION.items() if not verified]
         if quarantine:
             missing.insert(0, "hunt_runtime_quarantined:" + str(quarantine.get("incident_id", "unknown")))
+        if getattr(self.config, 'data_dir', None):
+            from .hunt_attack import pending_attack
+            if pending_attack(self.config): missing.append('controlled_attack_pending')
         return {"available": not missing, "missing": missing, "validation": dict(VALIDATION),
                 "quarantine": quarantine,
                 "readonly": {"roster_status": True, "ready_army": True, "bases": True,
@@ -224,14 +273,35 @@ class HuntClient:
     def bases(self):
         return self._read("bases")["bases"]
 
-    def search_giants(self, center, radius=70):
+    def search_giants(self, center, radius=70, *, army_id=None):
         if (not isinstance(center, (list, tuple)) or len(center) != 2 or
                 any(type(v) is not int or not 1 <= v <= 1620 for v in center) or
                 type(radius) is not int or not 1 <= radius <= 70):
             raise ValueError("hunt_search_bounds_invalid")
+        if army_id is not None:
+            army_id = _positive_id(army_id)
+            centers = plan_query_centers(center, radius)
+            seed = reserve_search_sessions(self.config, len(centers))
+            raw = self._read('search_fresh', army_id=army_id, center=list(center), radius=radius,
+                             centers=centers, session_seed=seed, dwell_ms=1000, timeout_ms=60000)
+            accumulator = AOISearchAccumulator(world=self.config.identity['world'], center=center,
+                                               radius=radius, max_age=120)
+            for session in raw.get('sessions', []):
+                accumulator.begin(session_id=session['session_id'], center=session['center'],
+                                  sent_at=session['sent_at'])
+                for event in raw.get('events', []):
+                    if event['data'].get('session_id') == session['session_id']:
+                        accumulator.ingest(event['name'], event['data'], received_at=event['received_at'])
+                accumulator.finish(session_id=session['session_id'], finished_at=session['finished_at'])
+            return {**accumulator.result(now=time.time()), 'metadata':raw.get('metadata'),
+                    'dispatches':raw.get('dispatches', []), 'native_calls':raw.get('native_calls'),
+                    'cleanup_verified':raw.get('cleanup_verified')}
         raw = self._read("search", center=list(center), radius=radius)
         targets = []
         for t in raw.get("targets", []):
+            if ('end_time' in t and (type(t['end_time']) not in (int,float) or
+                    not math.isfinite(t['end_time']) or t['end_time'] <= time.time())):
+                continue
             if t.get("use_code") != 1 or t.get("conf_id") != 10:
                 continue
             if any(type(t.get(k)) is not int for k in ("x", "y")):
@@ -251,13 +321,54 @@ class HuntClient:
         return [normalize_preview(raw["preview"], target["id"])]
 
     def execute(self, command):
+        if command.get('kind') == 'replenish':
+            from .replenish import Replenisher, HuntReplenishmentBlocked
+            from .replenish_client import ReplenishClient
+            client = ReplenishClient(self.config, stop_event=self.stop_event,
+                                     controlled_verification=self.controlled_verification)
+            # This gate performs no native work. Only this known preflight failure
+            # may be returned as unsent; arbitrary execution exceptions stay unknown.
+            try:
+                client.ensure_execution_ready()
+            except RuntimeError as error:
+                return {'status':'rejected','sent':False,'reason':str(error)}
+            try:
+                outcome = Replenisher(self.config,client=client).run_for_hunt(
+                    hunt_id=command['hunt_id'],command_id=command['id'])
+            except HuntReplenishmentBlocked as error:
+                return {'status':'rejected','sent':False,'reason':str(error)}
+            return self._replenishment_receipt(command,outcome)
         quarantine = self._quarantine()
         return {"status": "rejected", "sent": False,
                 "reason": "hunt_runtime_quarantined" if quarantine else "hunt_command_semantics_unverified",
                 "request_id": command.get("request_id", command.get("id"))}
 
     def reconcile(self, command, status):
+        if command.get('kind') == 'replenish':
+            from .replenish import Replenisher
+            outcome = Replenisher(self.config).cached_for_hunt(
+                hunt_id=command['hunt_id'],command_id=command['id'])
+            if outcome:
+                receipt = self._replenishment_receipt(command,outcome)
+                if receipt['status'] in {'applied','not_applied'}: return receipt['status']
+                if receipt['status'] == 'rejected' and receipt.get('sent') is False: return 'not_applied'
         return "unknown"
+
+    @staticmethod
+    def _replenishment_receipt(command, outcome):
+        rows = outcome.get('armies', [])
+        if len(rows) != 1 or rows[0].get('army_id') != command['army_id']:
+            return {'status':'unknown','reason':'replenishment_result_identity_mismatch'}
+        result = rows[0]
+        receipt = {**result,'replenish_command_id':result.get('command_id'),
+                   'replenish_request_id':outcome.get('request_id')}
+        if result.get('status') in {'applied','already_full'}:
+            return {**receipt,'status':'applied'}
+        if result.get('sent') is False and result.get('status') in {'blocked','rejected'}:
+            retryable = result.get('reason') in {'reserve_insufficient','wounded_recovery_pending',
+                                                 'recruitment_state_unverified'}
+            return {**receipt,'status':'not_applied' if retryable else 'rejected','retryable':retryable}
+        return {**receipt,'status':'unknown'}
 
     def _quarantine(self):
         data_dir = getattr(self.config, "data_dir", None)
@@ -277,12 +388,16 @@ class HuntClient:
         return value if value.get("active") is not False else None
 
     def _read(self, operation, **params):
-        if operation not in {"roster", "ready", "bases", "search", "preview"}:
+        if operation not in {"roster", "ready", "bases", "search", "search_fresh", "preview"}:
             raise ValueError("hunt_operation_not_allowed")
         quarantine = self._quarantine()
-        if quarantine:
+        if quarantine and not self.controlled_verification:
             raise RuntimeError("hunt_runtime_quarantined:" + str(quarantine.get("incident_id", "unknown")))
-        reason = readiness(self.config)
+        if self.controlled_verification:
+            from .replenish_client import replenish_readiness
+            reason = replenish_readiness(self.config, controlled_verification=True, operation='snapshot')
+        else:
+            reason = readiness(self.config)
         if reason:
             raise RuntimeError(reason)
         if not _bridge_lock.acquire(blocking=False):
@@ -290,7 +405,7 @@ class HuntClient:
         session = script = None
         done = threading.Event()
         result, errors = {}, []
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + (75 if operation == 'search_fresh' else 45)
         watcher_done = threading.Event()
         cancel = watcher = None
         try:
@@ -316,9 +431,17 @@ class HuntClient:
                        "role_id": str(identity["role_id"]), "region": identity["region"],
                        "server_id": identity["api_server_id"], "season": identity["api_season"],
                        "operation": operation, **params}
+            bridge_source = Path(__file__).with_suffix('.js').read_text(encoding='utf-8')
+            if operation == 'search_fresh':
+                options['operation'] = 'search'
+                marker = 'let busy=false, finished=false;'
+                if bridge_source.count(marker) != 1: raise RuntimeError('hunt_helper_boundary_changed')
+                bridge_source = bridge_source.split(marker)[0] + '\n' + '\n'.join(
+                    Path(__file__).with_name(name).read_text(encoding='utf-8')
+                    for name in ('hunt_search.js', 'hunt_search_bridge.js'))
             source = ("const OPTIONS = " + json.dumps(options) + ";\n"
                       + Path(__file__).with_name("native_lifecycle.js").read_text(encoding="utf-8") + "\n"
-                      + Path(__file__).with_suffix(".js").read_text(encoding="utf-8"))
+                      + bridge_source)
             session = device.attach(processes[0].pid)
             session.on("detached", lambda *args: (errors.append("api_client_detached"), done.set()) if not done.is_set() else None)
             script = session.create_script(source)
@@ -330,10 +453,14 @@ class HuntClient:
                     payload = msg["payload"]
                     if payload.get("kind") == "complete":
                         result.update(payload["data"])
+                        result['native_lifecycle'] = payload.get('lifecycle')
                         done.set()
                     elif payload.get("kind") == "failure":
+                        self.last_diagnostic = payload
                         errors.append(payload["reason"])
                         done.set()
+                    elif payload.get('kind') == 'search_diagnostic':
+                        self.last_diagnostic = payload
             script.on("message", receive)
             script.load()
             while not done.wait(.05):
@@ -354,5 +481,7 @@ class HuntClient:
                 cancel.__exit__(None, None, None)
             try:
                 close_native_session(self.config,session,script)
+                if result and not errors:
+                    result['cleanup_verified'] = True
             finally:
                 _bridge_lock.release()

@@ -152,8 +152,11 @@ class HuntStore:
         if status not in {'accepted','rejected','unknown','applied','not_applied'}:
             raise ValueError('invalid_command_status')
         with self.lock, self.db:
-            self.db.execute('UPDATE hunt_commands SET status=?,result=? WHERE id=?',
-                (status,encode(result),identity))
+            if result is None:
+                self.db.execute('UPDATE hunt_commands SET status=? WHERE id=?', (status,identity))
+            else:
+                self.db.execute('UPDATE hunt_commands SET status=?,result=? WHERE id=?',
+                    (status,encode(result),identity))
 
     def event(self, identity, army_id, now, value):
         with self.lock, self.db:

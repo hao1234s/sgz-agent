@@ -43,7 +43,7 @@ class Client:
         assert self.statuses[identity]['phase'] in {'idle','stationed','resolved'}
         return {**deepcopy(self.ready[identity]), **deepcopy(self.statuses[identity])}
     def bases(self): return deepcopy(self.locations)
-    def search_giants(self, center, radius):
+    def search_giants(self, center, radius, *, army_id=None):
         self.calls.append(('scan', center, radius))
         return dict(complete=True, targets=deepcopy(self.targets))
     def route_options(self, a, target, bases):
@@ -74,6 +74,51 @@ def begin(setup, **kwargs):
 
 def sent(client):
     return [row[1] for row in client.calls if row[0] == 'execute']
+
+
+def test_reconcile_retains_the_original_command_receipt(setup):
+    coordinator, store, client, identity = begin(setup, army_ids=['a'])
+    client.result = {'status': 'accepted', 'sent': True, 'witness': {'native_calls': 1}}
+    coordinator.tick(now=1000)
+    command = sent(client)[0]
+    client.reconciled = 'applied'
+    client.statuses['a']['phase'] = 'marching'
+    coordinator.tick(now=1120)
+    assert store.command(command['id'])['result'] == client.result
+
+
+def test_adapter_verified_applied_result_is_not_downgraded_to_unknown(setup):
+    coordinator, store, client, identity = begin(setup, army_ids=['a'])
+    client.result = {'status': 'applied', 'sent': True, 'verified_full': True}
+    coordinator.tick(now=1000)
+    assert store.command(sent(client)[0]['id'])['status'] == 'applied'
+
+
+def test_unavailable_resume_leaves_campaign_paused_and_blocked(setup):
+    coordinator, store, client, identity = begin(setup, army_ids=['a'])
+    coordinator.stop(identity)
+    state = store.get(identity)['armies'][0]
+    state['blocked'] = True
+    store.save_army(identity, state)
+    client.capabilities = lambda: {'available': False, 'missing': ['attack']}
+    with pytest.raises(RuntimeError, match='hunt_capabilities_missing:attack'):
+        coordinator.resume(identity, now=1200)
+    assert store.get(identity)['status'] == 'paused'
+    assert store.get(identity)['armies'][0]['blocked'] is True
+
+
+def test_verified_unsent_resource_wait_does_not_require_manual_resume(setup):
+    coordinator, store, client, identity = begin(setup, army_ids=['a'])
+    client.ready['a']['heroes'][0]['troops']=5000
+    client.result={'status':'not_applied','sent':False,'retryable':True,'reason':'reserve_insufficient'}
+    coordinator.tick(now=1000)
+    coordinator.tick(now=1120)
+    state=store.get(identity)['armies'][0]
+    assert state['blocked'] is False
+    assert len(sent(client))==1
+    assert state['reason']=='reserve_insufficient'
+    coordinator.tick(now=1240)
+    assert len(sent(client))==2
 
 
 def test_two_teams_reserve_distinct_targets_and_poll_every_120_seconds(setup):
@@ -386,3 +431,21 @@ def test_camp_recruitment_journals_one_hero_per_command(setup):
     assert command['kind']=='recruit'
     assert len(command['payload']['heroes'])==1
     assert command['payload']['heroes'][0]['id']==client.ready['a']['heroes'][0]['id']
+
+
+def test_city_refills_low_capacity_team_but_never_sends_it_below_departure_threshold(setup):
+    coordinator,store,client,identity=begin(setup,army_ids=['a'])
+    client.ready['a']['heroes']=client.ready['a']['heroes'][:2]
+    for hero in client.ready['a']['heroes']:
+        hero.update(troops=0,capacity=7000)
+    coordinator.tick(now=1000)
+    assert len(sent(client))==1
+    assert sent(client)[0]['kind']=='replenish'
+    assert sent(client)[0]['payload']['desired_total']==14000
+    client.reconciled='applied'
+    for hero in client.ready['a']['heroes']:hero['troops']=7000
+    client.calls.clear()
+    coordinator.tick(now=1120)
+    assert not sent(client)
+    assert not any(row[0]=='scan' for row in client.calls)
+    assert store.get(identity)['armies'][0]['reason']=='capacity_below_policy_threshold'

@@ -73,6 +73,13 @@ const {pathToFileURL} = require('node:url');
     assert.equal(huntStatus.capabilities.mutations_enabled, false);
     assert.ok(huntStatus.capabilities.missing.length > 0);
     assert.deepEqual(huntStatus.campaigns, []);
+    assert.ok(ctx.tools.get('sgz_replenish'));
+    assert.equal(ctx.tools.get('sgz_replenish').isConcurrencySafe(),false);
+    const gameStatus = await ctx.tools.get('sgz_game_status').execute({});
+    assert.equal(gameStatus.capabilities.replenish.available,false);
+    assert.equal(gameStatus.capabilities.replenish.transport,'api');
+    await assert.rejects(ctx.tools.get('sgz_replenish').execute({
+      world:'offline-assessment',request_id:'offline-replenish',dry_run:true}),/replenish_identity_missing/);
     assert.equal(ctx.tools.get('sgz_assess_combat').isConcurrencySafe(),true);
     const assess = args => ctx.tools.get('sgz_assess_combat').execute(args);
     assert.equal((await assess({phase:'draw'})).decision,'wait');
@@ -92,6 +99,7 @@ const {pathToFileURL} = require('node:url');
     console.log(JSON.stringify({ok:true,pluginVersion,name:skill.name,description:skill.description,
       loadedBytes:Buffer.byteLength(loaded.content),resourceBase:loaded.resourceBase,
       assessmentSkill:assessment.name,assessmentTool:true,assessmentRpcCases:3,
-      multiArmySkill:multi.name,huntTools:4,huntStatusRpc:true,huntExecutionEnabled:false,gameActions:0}));
+      multiArmySkill:multi.name,huntTools:4,huntStatusRpc:true,huntExecutionEnabled:false,
+      replenishTool:true,replenishUnavailableGuard:true,gameActions:0}));
   } finally { await ctx.fiber.dispose(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -43,6 +43,7 @@ class AgentService:
         self.stop_event = threading.Event()
         self.closed = False
         self.observing = False
+        self.replenishing = False
         self.resources_closed = False
         self.hunt_store = HuntStore(config.data_dir)
         self.hunt_coordinator = None
@@ -111,23 +112,43 @@ class AgentService:
             raise RuntimeError("service_closed")
         if method == 'assess_combat':
             return assess_combat(**params)
-        if method in {'hunt_start','hunt_status','hunt_stop','hunt_resume'}:
-            coordinator = self._hunts()
-            if method == 'hunt_status': return coordinator.status(**params)
-            if method == 'hunt_stop': return coordinator.stop(**params)
-            if method == 'hunt_resume':
-                self.stop_event.clear()
-                return coordinator.resume(**params)
+        if method in {'replenish','replenish_reconcile'}:
             self._validate_world(params.get('world'))
-            if self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
-            self.stop_event.clear()
-            return coordinator.start(request_id=params['request_id'],army_ids=params.get('army_ids'))
+            from .replenish import Replenisher
+            from .replenish_client import ReplenishClient
+            with self.lock:
+                if self.replenishing: raise RuntimeError('replenish_busy')
+                if self.closed or self.stop_event.is_set(): raise RuntimeError('stopped')
+                if self.observing or self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
+                if any(c['status']=='running' for c in self.hunt_store.list()): raise RuntimeError('hunt_active')
+                self.replenishing = True
+            try:
+                replenisher=Replenisher(self.config,client=ReplenishClient(self.config,stop_event=self.stop_event))
+                return (replenisher.reconcile if method=='replenish_reconcile' else replenisher.run)(**params)
+            finally:
+                with self.lock: self.replenishing = False
+        if method in {'hunt_start','hunt_status','hunt_stop','hunt_resume'}:
+            with self.lock:
+                if method in {'hunt_start','hunt_resume'} and self.replenishing: raise RuntimeError('replenish_busy')
+                coordinator = self._hunts()
+                if method == 'hunt_status': return coordinator.status(**params)
+                if method == 'hunt_stop': return coordinator.stop(**params)
+                if method == 'hunt_resume':
+                    self.stop_event.clear()
+                    return coordinator.resume(**params)
+                self._validate_world(params.get('world'))
+                if self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
+                self.stop_event.clear()
+                return coordinator.start(request_id=params['request_id'],army_ids=params.get('army_ids'))
         if method in {'prepare_login','observe_map','inspect_target','explore_region','scan_region','refresh_roster'}:
             if any(c['status'] == 'running' for c in self.hunt_store.list()):
                 raise RuntimeError('hunt_active:use_hunt_status_or_stop_before_manual_acquisition')
         if method == 'protocol_status':
             return protocol_status(self.config)
         if method == "game_status":
+            from .replenish_client import replenish_readiness
+            replenish_reason = replenish_readiness(self.config)
+            replenish_read_reason = replenish_readiness(self.config,operation='snapshot')
             return {"service": {"state": "running", "pid": os.getpid()},
                     "windows": [asdict(w) for w in self.desktop.list_windows(self.config.executable)],
                     "jobs": [self.store.get_job(params["job_id"])] if params.get("job_id") else self.store.list_jobs(),
@@ -140,6 +161,11 @@ class AgentService:
                         "bandit_recognition_calibrated": bool(self.config.ui.get('navigation', {}).get('target_detail_region')) if self.config.ui.get('navigation') else False,
                         "roster_calibrated": bool(self.config.ui.get('roster', {}).get('pages')),
                         "combat_assessment": True, "multi_army_scheduler": True,
+                        "replenish": {"available": replenish_reason is None, "reason": replenish_reason,
+                                      "read_available": replenish_read_reason is None, "read_reason": replenish_read_reason,
+                                      "reconcile_tool": "sgz_replenish_reconcile",
+                                      "tool": "sgz_replenish", "transport": "api", "scope": "own_city_ordinary",
+                                      "active": self.replenishing},
                         "combat": False, "hunt_execution_readiness_tool": "sgz_hunt_status"},
                     "world": self.config.identity.get('world'),
                     "identity_configured": bool(self.config.identity), "stop_requested": self.stop_event.is_set()}
@@ -164,6 +190,7 @@ class AgentService:
             return {"path": str(self.store.export(params["job_id"], params.get("format", "json")))}
         if method == "observe_map":
             with self.lock:
+                if self.replenishing: raise RuntimeError('replenish_busy')
                 if self.observing or self.job_thread and self.job_thread.is_alive():
                     raise RuntimeError("job_busy_use_game_status")
                 self.observing = True
@@ -219,6 +246,8 @@ class AgentService:
 
     def _start(self, kind, request_id, payload, resume=False):
         with self.lock:
+            if self.replenishing:
+                raise RuntimeError('replenish_busy')
             if self.closed:
                 raise RuntimeError("service_closed")
             if self.observing:

@@ -98,6 +98,52 @@ def test_exploration_rejects_different_world_before_starting_job(tmp_path):
     finally: service.close()
 
 
+@pytest.mark.parametrize('method,extra',[
+    ('replenish',{'request_id':'r'}), ('replenish_reconcile',{'command_id':'c'})])
+def test_replenish_uses_api_service_without_binding_desktop(tmp_path,monkeypatch,method,extra):
+    from dataclasses import replace
+    from sgz_agent import replenish
+    service=make_service(tmp_path)
+    service.config=replace(service.config,identity={'world':'w'})
+    called=[]
+    class Refill:
+        def __init__(self,config,*,client): called.append(client.stop_event is service.stop_event)
+        def run(self,**params): called.append(params);return {'status':'complete'}
+        reconcile=run
+    monkeypatch.setattr(replenish,'Replenisher',Refill)
+    try:
+        with pytest.raises(ValueError,match='world_mismatch'):
+            service.dispatch(method,{'world':'wrong',**extra})
+        assert called==[]
+        assert service.dispatch(method,{'world':'w',**extra})['status']=='complete'
+        assert called==[True,{'world':'w',**extra}]
+        assert service.controller is None
+    finally: service.close()
+
+
+def test_refill_excludes_other_jobs_and_hunt_start_without_blocking_shutdown(tmp_path,monkeypatch):
+    from dataclasses import replace
+    from sgz_agent import replenish
+    service=make_service(tmp_path);service.config=replace(service.config,identity={'world':'w'})
+    entered=threading.Event();release=threading.Event();errors=[]
+    class Refill:
+        def __init__(self,*args,**kwargs):pass
+        def run(self,**params): entered.set();assert release.wait(3);return {}
+    monkeypatch.setattr(replenish,'Replenisher',Refill)
+    def run():
+        try:service.dispatch('replenish',{'world':'w','request_id':'r'})
+        except Exception as e:errors.append(e)
+    worker=threading.Thread(target=run);worker.start();assert entered.wait(1)
+    try:
+        for method,params in [('prepare_login',{'request_id':'login'}),
+                              ('hunt_start',{'world':'w','request_id':'hunt'}),
+                              ('observe_map',{}),('replenish',{'world':'w','request_id':'second'})]:
+            with pytest.raises(RuntimeError,match='replenish_busy'):service.dispatch(method,params)
+        service.request_stop();assert service.stop_event.is_set()
+    finally:release.set();worker.join(2);service.close()
+    assert errors==[]
+
+
 def test_exploration_resumes_only_unverified_targets_and_saves_matching_evidence(tmp_path):
     from dataclasses import replace
     from PIL import Image

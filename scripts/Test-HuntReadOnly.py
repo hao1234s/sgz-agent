@@ -9,12 +9,17 @@ import frida
 from sgz_agent import hunt_client
 from sgz_agent.client_api import _fingerprint, SUPPORTED_SHA256, _bridge_lock
 from sgz_agent.config import load_config
+from sgz_agent.native_session import drain_native_script
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--approved-controlled-session', action='store_true')
+    parser.add_argument('--logistics-only',action='store_true',help='Requires approval for logistics parameter inspection; never sends troop commands.')
+    parser.add_argument('--observe-replenish',action='store_true',help='Passively observe whitelisted refill packets for up to 110 seconds; sends no gameplay commands.')
     args = parser.parse_args()
+    if args.logistics_only and args.observe_replenish:
+        parser.error('Select only one diagnostic mode.')
     if not args.approved_controlled_session:
         parser.error('This diagnostic requires separate approval for one controlled session.')
     config = load_config('config/game.local.json')
@@ -58,23 +63,38 @@ def main():
             elif message['type']=='send':
                 payload=message['payload']
                 if payload.get('kind')=='complete':result.update(payload);complete.set()
-                elif payload.get('kind')=='failure':errors.append(payload.get('reason'));complete.set()
+                elif payload.get('kind')=='failure':
+                    (output/f'{sequence:03d}-{operation}-failure.json').write_text(json.dumps(payload,ensure_ascii=True,indent=2),encoding='utf-8')
+                    errors.append(payload.get('reason'));complete.set()
+                elif payload.get('kind') in {'diagnostic_stage','diagnostic_partial'}:
+                    record('diagnostic_stage',sequence=sequence,stage=payload.get('stage'),kind_received=payload['kind'])
+                    if payload['kind']=='diagnostic_partial':
+                        (output/f'{sequence:03d}-{operation}-partial.json').write_text(json.dumps(payload,ensure_ascii=True,indent=2),encoding='utf-8')
+                elif payload.get('kind')=='diagnostic_observation':
+                    record('diagnostic_observation',sequence=sequence,data=payload['data'])
         record('operation_begin',sequence=sequence,operation=operation)
-        current_script=session.create_script('const OPTIONS='+json.dumps(options)+';\n'+helper+'\n'+bridge)
+        body=bridge
+        if operation=='logistics':
+            # Reuse the production native wrappers and identity/teardown contract.
+            marker='// The status path never invokes'
+            if bridge.count(marker)!=1:raise RuntimeError('diagnostic_bridge_prefix_changed')
+            body=bridge.split(marker)[0]+Path('scripts/hunt_logistics_readonly.js').read_text(encoding='utf-8')
+        elif operation=='observe_replenish':
+            marker='let busy=false, finished=false;'
+            if bridge.count(marker)!=1:raise RuntimeError('diagnostic_bridge_prefix_changed')
+            body=bridge.split(marker)[0]+Path('scripts/hunt_replenish_observer.js').read_text(encoding='utf-8')
+        current_script=session.create_script('const OPTIONS='+json.dumps(options)+';\n'+helper+'\n'+body)
         current_script.on('message',receive)
         safe_to_detach=False
         try:
             current_script.load()
-            if not complete.wait(20):raise RuntimeError('diagnostic_operation_timeout')
+            if not complete.wait(130 if operation=='observe_replenish' else 20):raise RuntimeError('diagnostic_operation_timeout')
             if errors:raise RuntimeError(errors[0])
             (output/f'{sequence:03d}-{operation}.json').write_text(json.dumps(result,ensure_ascii=True,indent=2),encoding='utf-8')
             return result['data']
         finally:
             if not detached.is_set():
-                token=frida.Cancellable(); timer=threading.Timer(5,token.cancel); timer.daemon=True;timer.start()
-                try:
-                    with token: state=current_script.exports_sync.close()
-                finally:timer.cancel()
+                state=drain_native_script(current_script,timeout=5)
                 record('cleanup_state',sequence=sequence,state=state)
                 if state.get('closed') is not True or any(state.get(k)!=0 for k in ('active_native','callbacks','hooks')):
                     raise RuntimeError('diagnostic_quiescence_unconfirmed')
@@ -86,12 +106,26 @@ def main():
         session=device.attach(matches[0].pid)
         session.on('detached',lambda *a:detached.set())
         record('attach_returned')
+        if args.logistics_only:
+            read('logistics')
+            record('checks_complete',operations=sequence,gameplay_commands=0)
+            return
+        if args.observe_replenish:
+            roster=read('roster')
+            for raw in roster.get('armies',[]):
+                army=hunt_client.normalize_army(raw)
+                if sequence>=6:break
+                if army['kind']=='regular' and army['formed'] and army['phase'] in hunt_client.READY_PHASES:
+                    read('ready',army_id=int(army['id']))
+            read('observe_replenish')
+            record('checks_complete',operations=sequence,observer_generated_commands=0)
+            return
         roster=read('roster')
         ready=[]
         for raw in roster.get('armies',[]):
             army=hunt_client.normalize_army(raw)
             if army['kind']=='regular' and army['formed'] and army['phase'] in hunt_client.READY_PHASES:
-                if len(ready)>=3:break
+                if len(ready)>=5:break
                 data=read('ready',army_id=int(army['id']));ready.append(data)
         read('bases')
         if ready:

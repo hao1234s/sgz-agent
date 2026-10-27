@@ -39,6 +39,60 @@ def test_home_city_is_not_a_separate_deployment_base():
     assert hunt_client.normalize_army(raw_army(dispatch_build_id=44))["deployment_base_id"] == "44"
 
 
+def arrived_dispatch(**changes):
+    # Observed parked city/camp state. Legacy status.dispatch_pos was the home city.
+    return raw_army(status_codes=[19], position=[558, 1527], dispatch_build_id=11183,
+                    dispatch_position=[558, 1527], dispatch_entered_at=100,
+                    movement_end_time=0, movement_total_time=0, observed_at=200,
+                    at_dispatch=True, **changes)
+
+
+def test_arrived_dispatch_is_ready_and_keeps_actual_base_without_ending_battle():
+    row = hunt_client.normalize_army(arrived_dispatch())
+    assert row['phase'] == 'stationed'
+    assert row['current_base_id'] == '11183'
+    assert row['deployment_base_id'] == '11183'
+    assert row['encounter_complete'] is False
+
+
+@pytest.mark.parametrize('changes', [
+    {'dispatch_position': [559, 1527]}, {'dispatch_position': None},
+    {'movement_end_time': 250}, {'movement_total_time': 30},
+    {'movement_end_time': None}, {'dispatch_entered_at': 250},
+    {'dispatch_entered_at': None}, {'dispatch_entered_at': True},
+    {'status_codes': [19, 2]}, {'is_tying': True},
+    {'status_codes': [19, 24]}, {'status_codes': [19, 25]},
+])
+def test_unproven_dispatch_or_active_encounter_never_becomes_ready(changes):
+    raw = arrived_dispatch()
+    raw.update(changes)
+    row = hunt_client.normalize_army(raw)
+    assert row['phase'] not in hunt_client.READY_PHASES
+    assert row['current_base_id'] is None
+
+
+def test_native_ready_guard_recognizes_arrived_dispatch_and_rejects_active_states():
+    # Execute the real native guard without attaching to a game.
+    source = Path(hunt_client.__file__).with_suffix('.js').read_text(encoding='utf-8')
+    guard = source[source.index('function isReady(row) {'):source.index('function roster(L) {')]
+    rows = [arrived_dispatch()]
+    for patch in ({'dispatch_position': None}, {'movement_end_time': 210},
+                  {'dispatch_entered_at': None}, {'status_codes': [19, 2]},
+                  {'status_codes': [25]}, {'is_tying': True}, {'army_type': 11}):
+        rows.append({**arrived_dispatch(), **patch})
+    result = subprocess.run(['node', '-e', guard + '\nconsole.log(JSON.stringify(' +
+                             json.dumps(rows) + '.map(isReady)))'],
+                            capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == [True, False, False, False, False, False, False, False]
+
+
+def test_defender_army_identifier_is_not_reserved_as_a_world_monster_target():
+    row=hunt_client.normalize_army(raw_army(status_codes=[24],enemy_army_id=901))
+    assert row['target_id'] is None
+    assert row['enemy_army_id']=='901'
+    assert row['encounter_complete'] is False
+
+
 def test_unformed_and_auxiliary_are_identified():
     assert hunt_client.normalize_army(raw_army(hero_ids=[-1, -1, -1]))["formed"] is False
     assert hunt_client.normalize_army(raw_army(army_type=11))["kind"] == "auxiliary"
@@ -68,6 +122,41 @@ def test_unverified_actions_never_touch_transport(monkeypatch):
     assert client.reconcile({}, {}) == "unknown"
 
 
+def test_replenishment_uses_owned_hunt_journal_and_maps_verified_receipt(monkeypatch):
+    from sgz_agent import replenish, replenish_client
+    calls=[]
+    class Native:
+        def __init__(self,*a,**k): pass
+        def ensure_execution_ready(self): calls.append('gate')
+    class Worker:
+        def __init__(self,*a,**k): pass
+        def run_for_hunt(self,**kw):
+            calls.append(kw)
+            return {'armies':[{'army_id':'350212','status':'applied','sent':True,'command_id':'child'}]}
+    monkeypatch.setattr(replenish_client,'ReplenishClient',Native)
+    monkeypatch.setattr(replenish,'Replenisher',Worker)
+    client=hunt_client.HuntClient(SimpleNamespace(identity={'world':'w'}))
+    receipt=client.execute({'id':'parent','hunt_id':'h','army_id':'350212','kind':'replenish'})
+    assert receipt['status']=='applied' and receipt['replenish_command_id']=='child'
+    assert calls==['gate',{'hunt_id':'h','command_id':'parent'}]
+
+
+def test_resource_shortage_is_known_unsent_and_retryable(monkeypatch):
+    from sgz_agent import replenish, replenish_client
+    class Native:
+        def __init__(self,*a,**k): pass
+        def ensure_execution_ready(self): pass
+    class Worker:
+        def __init__(self,*a,**k): pass
+        def run_for_hunt(self,**kw):
+            return {'armies':[{'army_id':'350212','status':'blocked','sent':False,'reason':'reserve_insufficient'}]}
+    monkeypatch.setattr(replenish_client,'ReplenishClient',Native)
+    monkeypatch.setattr(replenish,'Replenisher',Worker)
+    client=hunt_client.HuntClient(SimpleNamespace(identity={'world':'w'}))
+    receipt=client.execute({'id':'parent','hunt_id':'h','army_id':'350212','kind':'replenish'})
+    assert receipt['status']=='not_applied' and receipt['retryable'] is True and receipt['sent'] is False
+
+
 def test_search_filters_radius_taxonomy_and_does_not_upgrade_incomplete_coverage(monkeypatch):
     client = hunt_client.HuntClient(SimpleNamespace(identity={"world": "w"}))
     monkeypatch.setattr(client, "_read", lambda *a, **k: {
@@ -79,6 +168,36 @@ def test_search_filters_radius_taxonomy_and_does_not_upgrade_incomplete_coverage
     found = client.search_giants([591, 828], radius=70)
     assert [r["id"] for r in found["targets"]] == ["1"]
     assert found["complete"] is False
+
+
+def test_fresh_search_passes_guarded_army_and_correlates_stream(tmp_path, monkeypatch):
+    import time
+    now = time.time() - 1
+    client = hunt_client.HuntClient(SimpleNamespace(identity={'world':'w'}, data_dir=tmp_path))
+    calls = []
+    def read(operation, **params):
+        calls.append((operation, params))
+        sid = params['session_seed']
+        return {'sessions':[{'session_id':sid,'center':[591,828],'sent_at':now,'finished_at':now+0.1}],
+                'events':[{'name':'sc_notify_refresh_aoi_content','received_at':now+0.05,
+                    'data':{'session_id':sid,'info_list':[{'id':4,'proto_type':'add','monster':{
+                        'use_code':1,'conf_id':10,'pos':{'row':590,'col':827},'end_time':now+600}}]}}]}
+    monkeypatch.setattr(client, '_read', read)
+    result = client.search_giants([591,828], army_id='350212')
+    assert calls[0][0] == 'search_fresh'
+    assert calls[0][1]['army_id'] == 350212
+    assert result['complete'] is False
+    assert [target['id'] for target in result['targets']] == ['4']
+    first_seed = calls[0][1]['session_seed']
+    client.search_giants([591,828], army_id='350212')
+    assert calls[1][1]['session_seed'] >= first_seed + len(calls[0][1]['centers'])
+
+
+def test_expired_cached_target_is_never_offered(monkeypatch):
+    client = hunt_client.HuntClient(SimpleNamespace(identity={'world':'w'}))
+    monkeypatch.setattr(client, '_read', lambda *a, **k: {'complete':False,'targets':[
+        {'id':1,'x':591,'y':828,'use_code':1,'conf_id':10,'end_time':1}]})
+    assert client.search_giants([591,828])['targets'] == []
 
 
 @pytest.mark.parametrize("center,radius", [([0, 4], 70), ([1, 1], 71), ([True, 4], 70)])
@@ -108,10 +227,20 @@ def test_preview_request_is_narrow_and_uses_verified_taofa_enum():
 def test_server_preview_time_is_preserved_without_inventing_morale():
     data = hunt_client.normalize_preview({"result": 1, "need_time": 150, "path_len": 13,
                                          "need_energy": 15, "speed": 120}, "target")
-    assert data["travel_seconds"] == 150
-    assert data["prepare_seconds"] is None
+    assert data["travel_seconds"] == 0
+    assert data["prepare_seconds"] == 0
+    assert data["attack_seconds"] == 150
+    assert data["command_prepare_seconds"] is None
     assert data["arrival_morale"] is None and data["verified"] is False
     assert data["target_id"] == "target"
+
+
+def test_command_preparation_is_retained_without_claiming_a_verified_route():
+    data=hunt_client.normalize_preview({'result':1,'need_time':150,'prepare_time':20},'target')
+    assert data['attack_seconds']==150
+    assert data['command_prepare_seconds']==20
+    assert data['verified'] is False
+    assert 'command_prepare_semantics' in data['missing']
 
 
 def test_rejected_server_preview_cannot_become_feasible_route():
@@ -200,7 +329,8 @@ def test_native_cleanup_requires_confirmed_quiescence(monkeypatch,tmp_path,drain
         'role_id':'1','region':'r','api_server_id':1,'api_season':1})
     client=hunt_client.HuntClient(config)
     if drains:
-        assert client._read('roster')=={'ok':True}
+        result = client._read('roster')
+        assert result['ok'] is True and result['cleanup_verified'] is True
         assert actions==['close','unload','detach']
     else:
         with pytest.raises(RuntimeError,match='quiescence'):

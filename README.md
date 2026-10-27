@@ -27,6 +27,8 @@ Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python
 | `sgz_knowledge_search` | 检索武将、战法、基础机制，返回来源及版本说明 |
 | `sgz_knowledge_status` | 查看知识条数、覆盖范围、模型和索引状态 |
 | `sgz_protocol_status` | 检查客户端接口依赖、身份绑定和版本；连接在扫描时验证 |
+| `sgz_replenish` | 接口补满指定/全部城内闲置普通队伍；只读预览和执行能力分别由 `read_available` / `available` 报告 |
+| `sgz_replenish_reconcile` | 两次只读观察对账旧补兵命令，保留历史未知结果；只允许满足严格兼容条件的新目标扩展 |
 | `sgz_scan_region` | 默认 `source=api` 快速读取区域资源及个人贼寇；显式 `source=ui` 才逐格采集 |
 | `sgz_search_map` | 检索已观察的资源/贼寇，按区域、种类、等级、时效分页 |
 | `sgz_refresh_roster` | 刷新自己的主城/分城与队伍快照；需要本机页面校准 |
@@ -103,7 +105,7 @@ API 扫描通过本机客户端适配器执行固定只读调用，复用当前�
 - `config/game.local.json`：身份、世界标识及本机校准，不提交 Git。
 - `.state/calibration/`：校准图；`.state/evidence/`：地图证据。
 - `.state/agent.sqlite3`：任务与观察；`.state/exports/`：JSON/CSV 导出。
-- `.state/package/dsh-sgz-agent-0.6.0.tgz`：含多队调度工具、区域查询、队伍快照、通用战前评估、窗口托管和原生 skill 接入；Python 适配器与依赖位于项目环境。实机执行能力以 `sgz_hunt_status` 为准。
+- `.state/package/dsh-sgz-agent-0.6.1.tgz`：含多队调度工具、区域查询、队伍快照、通用战前评估、窗口托管和原生 skill 接入；项目 Python 环境包含原生回调清理修复。实机执行能力以 `sgz_hunt_status` 为准。
 - `.state/dsh-profile-backup-20261025-101849/`：安装前包管理元数据备份，未读取或修改凭据。
 
 ```powershell
