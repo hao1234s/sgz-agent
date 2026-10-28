@@ -24,7 +24,7 @@ npm run preview
 
 ## 连接现有 Agent
 
-本仓库的 `src/sgz_agent/rpc.py` 是 **工具 stdio RPC**，`plugin/src/index.ts` 将工具注册到 **DSH**。自然语言会话由 DSH 执行，前端使用其现有的认证 HTTP API 和 WebSocket 接口，不直接把用户消息发给 Python 工具服务，也不启动第二个游戏 Worker。
+本仓库的 `backend/src/sgz_agent/rpc.py` 是 **工具 stdio RPC**，`agent/plugin/src/index.ts` 将工具注册到 **DSH**。自然语言会话由 DSH 执行，前端使用其现有的认证 HTTP API 和 WebSocket 接口，不直接把用户消息发给 Python 工具服务，也不启动第二个游戏 Worker。
 
 1. 使用已加载本项目插件的 DSH 实例。
 2. 在 `frontend/.env.local` 中设置该实例的 HTTP 地址。首次可复制 `.env.example`。

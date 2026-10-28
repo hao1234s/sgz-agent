@@ -1,0 +1,13 @@
+{
+  "executable": "E:\\sgzzlb\\S3Client.exe",
+  "data_dir": "../../.state",
+  "profile_id": "local",
+  "identity": {},
+  "ocr": "paddle",
+  "ui": {
+    "calibrated": false,
+    "anchors": {},
+    "actions": {},
+    "navigation": null
+  }
+}

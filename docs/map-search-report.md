@@ -8,7 +8,7 @@
 - 独立代码审查提出的查询、恢复、覆盖及窗口停止信号问题均已修复并回归验证。
 - 安装包通过 DSH 官方插件管理器更新到 desktop profile。安装前元数据备份：`.state/dsh-profile-backup-20261025-185110/`。
 - 安装后的真实 DSH runtime 成功加载 16 个工具，能检索真实地图和队伍快照。未调用模型 API。
-- 原生 skill 集成验证通过：目录发现、正文加载、禁止模型调用、正文更新、新文件热更新。测试技能仅在隔离临时目录，正式 `skills/` 目录仍为空。
+- 原生 skill 集成验证通过：目录发现、正文加载、禁止模型调用、正文更新、新文件热更新。测试技能仅在隔离临时目录，正式 `agent/skills/` 目录仍为空。
 - 原知识库回归通过：378 条知识、419 个向量，精确查询曹操正常。
 - 更新后已启动 DSH 管理的常驻服务：venv 启动器 PID 21608，实际 Python worker PID 27892。
 
@@ -31,7 +31,7 @@
 
 贼寇任务 `c8680b3c788043b58a634663d08f332a` 与资源任务 `1e537725315b4b01930fefceb682a788` 均完成；查询得到 fresh 结果，包含截图证据和采集时间。蛮族部队与脚下空地的守军独立记录。
 
-实机结果：`.state/live-service-results.json`；证据：`.state/evidence/`；安装检查日志：`.state/logs/feature-installed-final.out`。本机身份和图像配置在忽略提交的 `config/game.local.json` 与 `.state/calibration/` 中。
+实机结果：`.state/live-service-results.json`；证据：`.state/evidence/`；安装检查日志：`.state/logs/feature-installed-final.out`。本机身份和图像配置在忽略提交的 `backend/config/game.local.json` 与 `.state/calibration/` 中。
 
 ## 使用范围
 

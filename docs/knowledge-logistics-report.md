@@ -1,6 +1,6 @@
 # 调动与补兵知识包
 
-核对日期：2026-10-25。新增 `config/knowledge-logistics.json`，共11条：8条有来源的机制摘要、3条用户策略。资料核对日期不代表已在当前角色、服务器或剧本中实测。
+核对日期：2026-10-25。新增 `backend/config/knowledge-logistics.json`，共11条：8条有来源的机制摘要、3条用户策略。资料核对日期不代表已在当前角色、服务器或剧本中实测。
 
 ## 内容与来源
 
@@ -34,7 +34,7 @@
 新增显式导入命令；不会在启动或爬取时隐式导入用户策略。先停止持有知识库锁的DSH/知识worker，再在仓库根目录执行：
 
 ```powershell
-./.venv/Scripts/python.exe -m sgz_agent.knowledge_cli import --source config/knowledge-logistics.json --directory .state/knowledge
+./.venv/Scripts/python.exe -m sgz_agent.knowledge_cli import --source backend/config/knowledge-logistics.json --directory .state/knowledge
 ./.venv/Scripts/python.exe -m sgz_agent.knowledge_cli search --directory .state/knowledge --kind mechanic --query "营帐调动与士气"
 ./.venv/Scripts/python.exe -m sgz_agent.knowledge_cli search --directory .state/knowledge --kind mechanic --query "回城满兵策略"
 ```

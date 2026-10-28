@@ -1,0 +1,14 @@
+- insert:
+    - id: sgz-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: sgz-filesystem
+        includeDefaultRoots: false
+        customSkillDirs:
+          - D:/agent/agent/skills
+        watch: true
+        watchFollowSymlinks: false
+    - id: sgz-agent
+      name: dsh-sgz-agent
+      config:
+        rootDir: D:/agent

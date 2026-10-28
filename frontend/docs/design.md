@@ -4,7 +4,7 @@
 
 技术选择由实现者提出：React、TypeScript、Vite。DSH 原生 WebSocket 会话协议作为默认接入；通用 POST SSE 为可配置替代；演示模式由用户显式选择。全部新增文件放在 frontend。只本地运行，无云端发布。
 
-核对结果：src/sgz_agent/rpc.py 是工具 stdio RPC，plugin/src/index.ts 把工具注册到 DSH。DSH 安装目录提供 session/create、session/prompt、session/cancel 和 /api/remote.mux 的 session/follow。不能把 Python 工具 RPC 当作大模型聊天接口，也不启动第二个游戏 worker。
+核对结果：backend/src/sgz_agent/rpc.py 是工具 stdio RPC，agent/plugin/src/index.ts 把工具注册到 DSH。DSH 安装目录提供 session/create、session/prompt、session/cancel 和 /api/remote.mux 的 session/follow。不能把 Python 工具 RPC 当作大模型聊天接口，也不启动第二个游戏 worker。
 
 界面：浅暖白背景、黑色正文、大标题、宽留白，左侧可折叠会话历史，居中输入框和四个开始入口。消息支持 Markdown、代码、复制；流式状态、停止和失败明确可见。对话历史只存在本浏览器。设置支持 DSH 连接认证或 SSE URL。凭据只留内存，不写 localStorage。
 

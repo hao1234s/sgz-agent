@@ -39,7 +39,7 @@ NPC 的 `EntityInfo` 包含 `id,type,monster`；`monster` 包含 `pos:{row,col},
 
 ## 运行与校验
 
-依赖：`uv sync --frozen --extra dev --extra ocr --extra knowledge --extra api`。适配器仅支持已核验的 S3Client.exe SHA-256；客户端升级需重新核验。`config/game.local.json` 的 identity 除 role_id/region/world 外，还绑定运行时 `api_server_id` 和 `api_season`，切换赛季或区服不能沿用旧值。
+依赖：`powershell -ExecutionPolicy Bypass -File backend/scripts/Sync-Backend.ps1`。适配器仅支持已核验的 S3Client.exe SHA-256；客户端升级需重新核验。`backend/config/game.local.json` 的 identity 除 role_id/region/world 外，还绑定运行时 `api_server_id` 和 `api_season`，切换赛季或区服不能沿用旧值。
 
 `sgz_protocol_status` 检查依赖、配置和版本；登录与连接在实际扫描时检查。普通 Frida attach 后，在客户端已有 Lua 调用边界执行固定只读方法，每批 64 格，恢复 Lua 栈。不提供任意代码/函数入口，不读取连接密钥，不另建登录连接。扫描前后以及各批核验身份；等待两项服务器响应，超时、取消或断连不保存不完整结果。证据与坐标校验通过后，一次事务入库。结束卸载观察器、断开调试会话，保留游戏进程和原连接。
 

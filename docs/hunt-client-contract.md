@@ -61,7 +61,7 @@ conscription tables were empty. These observations do not enable command writes.
 
 Both desktop control providers reported the native pipe unavailable. A passive
 schema-whitelisted replenishment observer is prepared in
-`scripts/hunt_replenish_observer.js` to capture one ordinary user-operated refill
+`backend/scripts/hunt_replenish_observer.js` to capture one ordinary user-operated refill
 and its acknowledgement; it invokes no gameplay method. Its driver reads idle
 army details beforehand and stops after an acknowledgement or a 110-second
 observation limit. Syntax validation passed; the observer has not yet been run.
@@ -165,7 +165,7 @@ call threads running while the real production cleanup drains, unloads and
 detaches: 10/10 runs passed with the fixture alive. A never-resolving RPC returned
 within its deadline while retaining the session. Evidence is
 `.state/native-lifecycle-probe/concurrent-*.jsonl` and `stuck-rpc.jsonl`;
-`scripts/Probe-NativeLifecycle.py` is reproducible and never enumerates a game.
+`backend/scripts/Probe-NativeLifecycle.py` is reproducible and never enumerates a game.
 The final fixes subsequently passed one authorized game session at
 `.state/network-probe/lifecycle-check-20261025-224159`: roster, four idle-army
 detail reads, bases, and a TAOFA preview completed; each cleanup reported zero
@@ -331,7 +331,7 @@ The Python contract tests use explicitly synthetic data. They verify guarded
 read access, status priority, missing completion evidence, command draft bounds,
 quarantine behavior, missing preview values, and Lua multi-return stack indexing.
 They do not represent live battle validation. The focused adapter suite passes
-27 tests; `node --check src/sgz_agent/hunt_client.js` also passes. Full-suite counts
+27 tests; `node --check backend/src/sgz_agent/hunt_client.js` also passes. Full-suite counts
 are reported by the integration run because other agents are still adding tests.
 
 ## Controlled Agent attack, 2026-10-27

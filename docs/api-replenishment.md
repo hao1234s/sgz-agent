@@ -58,4 +58,4 @@
 
 Python 319 项通过；Node 11 项通过；独立原生监听夹具 5 种情况均符合预期并完成清理。已安装包 `.state/package/dsh-sgz-agent-0.7.0.tgz`，安装前备份 `.state/dsh-profile-backup-20261025-234307`。DSH 原生隔离验收确认工具注册、能力关闭和未验证时拒绝调用，游戏动作 0。
 
-独立夹具为 `scripts/Probe-ReplenishHooks.py`，只连接自行创建的测试进程。接口验收脚本为 `scripts/Test-ReplenishAPI.py`，不会从旧成功缓存授予新代码验证。
+独立夹具为 `backend/scripts/Probe-ReplenishHooks.py`，只连接自行创建的测试进程。接口验收脚本为 `backend/scripts/Test-ReplenishAPI.py`，不会从旧成功缓存授予新代码验证。

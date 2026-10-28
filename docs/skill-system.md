@@ -1,16 +1,16 @@
 # 三国志项目 skill 系统
 
-复用 DSH 原生 `@deepseek-ai/dsh-skill`、`@deepseek-ai/dsh-skill-filesystem` 和原生 `skill` 加载工具；项目插件提供 `sgz_skills_list`、`sgz_skill_load`，并在系统提示中告知 agent 查询目录与按需加载。已添加 [巨戟士讨伐](../skills/sgz-giant-halberdier/SKILL.md)：指定队伍、只打巨戟士，战前考虑预计到达士气；交战、战平续战及同目标连续守军阶段不检索、不查兵力、不触发回城；整次交战最终结束后才检查低于 20000 的回补条件。战前达标时允许自动接受已授权的兵力悬殊提示。调动/返回驻点、伤兵恢复与实际征兵分别核验，地点按总耗时和成本选择；[机制与来源](../skills/sgz-giant-halberdier/references/mechanics.md) 区分官方旧版说明、本机观测和策略。打地技能尚未编写。
+复用 DSH 原生 `@deepseek-ai/dsh-skill`、`@deepseek-ai/dsh-skill-filesystem` 和原生 `skill` 加载工具；项目插件提供 `sgz_skills_list`、`sgz_skill_load`，并在系统提示中告知 agent 查询目录与按需加载。已添加 [巨戟士讨伐](../agent/skills/sgz-giant-halberdier/SKILL.md)：指定队伍、只打巨戟士，战前考虑预计到达士气；交战、战平续战及同目标连续守军阶段不检索、不查兵力、不触发回城；整次交战最终结束后才检查低于 20000 的回补条件。战前达标时允许自动接受已授权的兵力悬殊提示。调动/返回驻点、伤兵恢复与实际征兵分别核验，地点按总耗时和成本选择；[机制与来源](../agent/skills/sgz-giant-halberdier/references/mechanics.md) 区分官方旧版说明、本机观测和策略。打地技能尚未编写。
 
-新增 [通用战斗评估](../skills/sgz-combat-assessment/SKILL.md)，供任意编制使用；巨戟士技能按需加载它，而不是保存甘宁或其他固定队伍模板。工具 `sgz_assess_combat` 只计算传入数据，区分士气伤害折扣、每将兵池、社区近似兵力指标和同条件完整战报依据。它不模拟全部战法、不自动收集战报、不宣称胜率；详见 [模型与微信玩家来源](../skills/sgz-combat-assessment/references/model.md)。
+新增 [通用战斗评估](../agent/skills/sgz-combat-assessment/SKILL.md)，供任意编制使用；巨戟士技能按需加载它，而不是保存甘宁或其他固定队伍模板。工具 `sgz_assess_combat` 只计算传入数据，区分士气伤害折扣、每将兵池、社区近似兵力指标和同条件完整战报依据。它不模拟全部战法、不自动收集战报、不宣称胜率；详见 [模型与微信玩家来源](../agent/skills/sgz-combat-assessment/references/model.md)。
 
-[多队持续打野](../skills/sgz-multi-army-hunt/SKILL.md) 负责自然语言触发与权限边界，程序层 `HuntCoordinator` 负责 70 格候选检索、120 秒独立阶段检查、目标去重、调动路线和回补状态机。它调用窄客户端适配器，任务与命令记录保存于 `.state/hunts.sqlite3`。战中等待只约束该队；停止调度不撤军；重启先对账，不重复发送结果未知的命令。仅询问功能、加载 skill 或查询知识不会启动任务。
+[多队持续打野](../agent/skills/sgz-multi-army-hunt/SKILL.md) 负责自然语言触发与权限边界，程序层 `HuntCoordinator` 负责 70 格候选检索、120 秒独立阶段检查、目标去重、调动路线和回补状态机。它调用窄客户端适配器，任务与命令记录保存于 `.state/hunts.sqlite3`。战中等待只约束该队；停止调度不撤军；重启先对账，不重复发送结果未知的命令。仅询问功能、加载 skill 或查询知识不会启动任务。
 
-当前生产客户端因稳定性事故处于持久化隔离；执行接口、完整范围覆盖和整次战斗判定尚未验收。工具注册和离线模拟通过不代表实机功能可用，必须以 `sgz_hunt_status.capabilities` 为准，不能用 UI 自动化绕过该隔离。调动/补兵等 11 条知识已从 `config/knowledge-logistics.json` 导入 `.state/knowledge` 并建索引，区分历史来源、版本适用性与用户策略；详见 [知识持久化报告](knowledge-logistics-report.md)。
+当前生产客户端因稳定性事故处于持久化隔离；执行接口、完整范围覆盖和整次战斗判定尚未验收。工具注册和离线模拟通过不代表实机功能可用，必须以 `sgz_hunt_status.capabilities` 为准，不能用 UI 自动化绕过该隔离。调动/补兵等 11 条知识已从 `backend/config/knowledge-logistics.json` 导入 `.state/knowledge` 并建索引，区分历史来源、版本适用性与用户策略；详见 [知识持久化报告](knowledge-logistics-report.md)。
 
 ## 添加技能
 
-在 `D:/agent/skills/<name>/SKILL.md` 中放入 YAML frontmatter 与正文。文件名必须为 SKILL.md；`name` 使用小写字母、数字及连字符，例如未来的 `sgz-resource-march`，必须提供描述具体触发条件的 `description`。元数据由宿主原生 YAML 解析器读取，不是自制简化语法。
+在 `D:/agent/agent/skills/<name>/SKILL.md` 中放入 YAML frontmatter 与正文。文件名必须为 SKILL.md；`name` 使用小写字母、数字及连字符，例如未来的 `sgz-resource-march`，必须提供描述具体触发条件的 `description`。元数据由宿主原生 YAML 解析器读取，不是自制简化语法。
 
 ```yaml
 ---
@@ -66,4 +66,4 @@ frontmatter 后写操作流程。附属说明、数据和脚本放在同目录�
 
 ## 验证
 
-`scripts/Test-Dsh.cjs` 在独立临时技能目录中验证原生发现、加载、禁用、正文变更与新增文件热更新。测试不把 fixture 安装成用户技能，也不调用模型 API。`scripts/Test-Agent.ps1` 还覆盖 Python 数据链路、世界隔离、断点恢复和 Node worker 生命周期。
+`agent/scripts/Test-Dsh.cjs` 在独立临时技能目录中验证原生发现、加载、禁用、正文变更与新增文件热更新。测试不把 fixture 安装成用户技能，也不调用模型 API。`agent/scripts/Test-Agent.ps1` 还覆盖 Python 数据链路、世界隔离、断点恢复和 Node worker 生命周期。

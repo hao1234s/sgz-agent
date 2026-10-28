@@ -16,7 +16,7 @@
 - 兵力低于20000或士气准备不足时回当前调动驻点，没有则回所属城。营帐普通征兵逐将记录命令；主城/分城补到每将上限；伤兵恢复、队列和实际满兵分别确认。
 - 比较直接讨伐与调动、驻点准备、末段讨伐路程总时间，使用客户端有效预览、到达士气与驻点容量/权限；不使用猜测的倍速或直线距离替代实际耗时。
 - `.state/hunts.sqlite3` 保存任务、阶段、目标预占和发送前命令日志。超时/重启后先对账；结果未知不重发。停止只暂停新调度，不撤军。并发停止/恢复和停止时未发送的预占已覆盖回归。
-- `config/knowledge-logistics.json` 的11条知识实际导入 `.state/knowledge`，包括8条带来源机制和3条用户策略。当前389条记录、430向量、待索引0；重复导入无变化，关闭后重新打开的11次真实模型查询均命中对应条目。见 [知识报告](knowledge-logistics-report.md)。
+- `backend/config/knowledge-logistics.json` 的11条知识实际导入 `.state/knowledge`，包括8条带来源机制和3条用户策略。当前389条记录、430向量、待索引0；重复导入无变化，关闭后重新打开的11次真实模型查询均命中对应条目。见 [知识报告](knowledge-logistics-report.md)。
 
 ## 验证与部署证据
 
@@ -24,7 +24,7 @@
 - 插件 `npm run build` 与 `npm test`：构建成功，10 passed。
 - 三个战斗相关skill的格式验证通过；客户端JavaScript、原生检查脚本语法通过；`git diff --check`无错误。
 - 安装归档：`.state/package/dsh-sgz-agent-0.6.0.tgz`；安装前备份 `.state/dsh-profile-backup-20261025-214923`。
-- `scripts/Test-SgzSkills.cjs` 从已安装的DSH读取0.6.0，核对构建与工作区一致；三个skill按需加载正文一致；四个hunt工具注册成功；实际调用hunt_status返回能力不可用；3个通用战斗评估RPC通过。检查使用隔离数据目录和不存在的游戏路径，游戏动作0。
+- `agent/scripts/Test-SgzSkills.cjs` 从已安装的DSH读取0.6.0，核对构建与工作区一致；三个skill按需加载正文一致；四个hunt工具注册成功；实际调用hunt_status返回能力不可用；3个通用战斗评估RPC通过。检查使用隔离数据目录和不存在的游戏路径，游戏动作0。
 - DSH管理的唯一生产worker已启动（本次PID33296）。游戏仍为PID33176且正常响应，本次插件部署未重启游戏。
 
 ## 实机仍未完成的部分
