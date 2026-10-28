@@ -24,7 +24,18 @@
 
 - [x] Add ignore rules and confirm real environment files are untracked.
 - [x] Verify CLI and API-key support against the installed CLI and official upstream documentation.
-- [ ] Test credential parsing, config injection rejection, and release packaging before implementation.
-- [ ] Implement local prepare/apply script, Linux installer, systemd and Nginx templates.
-- [ ] Document cloud setup, HTTPS, API keys, connection token, workspace selection and Windows-tool boundary.
-- [ ] Run local tests, build/package checks, Bash/config syntax checks and independent review; explicitly report that live cloud deployment was not run.
+- [x] Test credential parsing, config injection rejection, and release packaging before implementation.
+- [x] Implement local prepare/apply script, Linux installer, systemd and Nginx templates.
+- [x] Document cloud setup, HTTPS, API keys, connection token, workspace selection and Windows-tool boundary.
+- [x] Run local tests, build/package checks, Bash/config syntax checks and independent review; explicitly report that live cloud deployment was not run.
+
+
+## Validation
+
+- Installed DSH CLI and official upstream confirm standalone headless/web profiles and API-key model configuration. The pinned npm version 0.2.1-rc.3 exists; installed web help confirms public-url/trusted-host/no-open flags.
+- Seven deployment unit tests pass, including a reproduced/fixed SSH-disconnection credential-cleanup regression.
+- Frontend: 18 tests pass; production build succeeds.
+- Bash syntax passes. Nginx 1.30.6 -t passes with Windows-only path substitutions and a temporary certificate; no listener was started.
+- Real prepare-only archive generated and inspected for secret exclusion and LF shell-script line endings. Real .env values did not occur in the archive; private environment files remain untracked.
+- Independent review found a cleanup warning gap and an insufficient static health check; both fixed. Installer now compares the served index with the release file.
+- No cloud login, install, reload, model request or game operation performed. Actual SSH username, domain/TLS and model credentials remain deployment inputs, and live Linux/model validation remains outstanding.

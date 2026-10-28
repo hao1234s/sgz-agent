@@ -1,8 +1,11 @@
 import importlib.util
+from contextlib import redirect_stderr
+import io
 from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 MODULE = Path(__file__).resolve().parents[1] / 'deploy.py'
 spec = importlib.util.spec_from_file_location('cloud_deploy', MODULE)
@@ -78,6 +81,31 @@ class DeploymentTests(unittest.TestCase):
             (dist / '.env').write_text('unexpected secret', encoding='utf-8')
             with self.assertRaises(ValueError):
                 deploy.create_bundle(dist, root / 'rejected.tgz', {'SITE_DOMAIN': 'agent.example.com'})
+
+    def test_disconnected_upload_reports_unconfirmed_secret_cleanup(self):
+        client = MagicMock()
+        transport = client.get_transport.return_value
+        transport.is_active.return_value = True
+        channel = transport.open_session.return_value
+        def disconnect(_command):
+            transport.is_active.return_value = False
+            raise RuntimeError('SSH connection lost')
+        channel.exec_command.side_effect = disconnect
+        paramiko = MagicMock()
+        paramiko.SSHClient.return_value = client
+        with tempfile.TemporaryDirectory() as folder:
+            known_hosts = Path(folder) / 'known_hosts'
+            known_hosts.touch()
+            settings = {'SSH_HOST': '192.0.2.10', 'SSH_USER': 'root',
+                        'SITE_DOMAIN': 'agent.example.com', 'DEEPSEEK_API_KEY': 'sk-test-private',
+                        'SSH_KNOWN_HOSTS': str(known_hosts)}
+            errors = io.StringIO()
+            with patch.dict('sys.modules', {'paramiko': paramiko}), redirect_stderr(errors):
+                with self.assertRaisesRegex(RuntimeError, 'SSH connection lost'):
+                    deploy.apply_release(Path(folder) / 'release.tgz', settings)
+            self.assertIn('temporary credential file', errors.getvalue())
+            self.assertNotIn('sk-test-private', errors.getvalue())
+            client.close.assert_called_once()
 
 
 if __name__ == '__main__':

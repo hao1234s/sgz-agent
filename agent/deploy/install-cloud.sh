@@ -16,7 +16,7 @@ backup="/var/backups/sgz-agent/$release_id"
 runtime=/opt/sgz-agent/dsh
 dsh_version=0.2.1-rc.3
 
-for command in npm nginx systemctl curl flock useradd install; do
+for command in npm nginx systemctl curl cmp flock useradd install; do
     command -v "$command" >/dev/null || { echo "Missing server prerequisite: $command" >&2; exit 1; }
 done
 [[ -x /usr/bin/node ]] || { echo 'Install Node.js 24+ at /usr/bin/node.' >&2; exit 1; }
@@ -44,6 +44,10 @@ previous_active=false
 previous_enabled=false
 systemctl is-active --quiet sgz-agent.service && previous_active=true
 systemctl is-enabled --quiet sgz-agent.service && previous_enabled=true
+if ! $previous_active && (echo >/dev/tcp/127.0.0.1/3080) 2>/dev/null; then
+    echo 'Port 3080 is already occupied by another process; no service was changed.' >&2
+    exit 1
+fi
 previous_release=$(readlink "$app/current" 2>/dev/null || true)
 install -d -m 700 "$backup"
 for pair in "nginx:$nginx_config" "service:$unit" "env:$environment"; do
@@ -111,6 +115,7 @@ done
 $ready || { echo 'DSH did not become ready; inspect its private systemd journal.' >&2; false; }
 systemctl reload nginx
 curl --fail --silent --show-error --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/healthz"
+curl --fail --silent --show-error --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/" | cmp - "$release/frontend/index.html"
 trap - ERR
 echo "Installed release $release_id. Previous release and backups retained."
 echo 'Finish DSH browser authentication and model verification using the deployment README.'

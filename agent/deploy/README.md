@@ -20,7 +20,7 @@ DSH 提供独立 CLI，可以在 Linux 服务器上使用 API Key，无需安装
 
 ## 服务器前提
 
-面向使用 systemd 的 Linux，建议先在 Ubuntu/Debian 上部署。需要 `/usr/bin/node` 为 Node.js 24+，并已安装 npm、Nginx、curl、tar、util-linux、git；DSH 的终端/搜索工具还可能需要 bash、ripgrep 和可用的 Linux sandbox。部署脚本不会修改系统防火墙或卸载已有站点。
+面向使用 systemd 的 Linux，建议先在 Ubuntu/Debian 上部署。需要 `/usr/bin/node` 为 Node.js 24+，并已安装 npm、Nginx 1.20+、curl、tar、util-linux、git；DSH 的终端/搜索工具还可能需要 bash、ripgrep 和可用的 Linux sandbox。部署脚本不会修改系统防火墙或卸载已有站点。
 
 需要一个已解析到服务器的域名、开放的 443 端口，以及该域名的有效证书：
 
@@ -67,7 +67,7 @@ API Key 只在 `--apply` 时单独通过 SFTP 上传，服务器保存为 root �
 1. 在服务器以管理员身份查看 `sudo journalctl -u sgz-agent -n 100 --no-pager`，取得 DSH 打印的 HTTPS 启动链接。日志含连接凭据，请只在自己的终端查看。
 2. 打开 `https://你的域名/`，在连接设置选择 **DSH Agent**，填写工作目录 `/var/lib/sgz-agent/workspace`，粘贴该 DSH 链接或其中的 token。
 3. DSH 原生界面位于 `https://你的域名/dsh/`；需要选择模型、配置其他供应商或批准工具调用时，在这里操作。
-4. 发一条普通测试消息，核实实际模型响应。`/healthz` 只证明静态站点可访问，安装脚本的存活检查也不代表模型 Key、游戏工具或聊天已联调。
+4. 发一条普通测试消息，核实实际模型响应。`/healthz` 只证明 Nginx 站点已响应；安装脚本另外比对实际首页与发布文件。它们都不代表模型 Key、游戏工具或聊天已联调。
 
 服务重启后以新的启动链接为准。不要把模型 Key 填入前端的 DSH token 输入框。前端的“自定义接口”模式目前没有云端 `/chat/stream` 服务，Nginx 对 `/agent-api/` 返回明确的 503；本部署使用 DSH 模式。
 

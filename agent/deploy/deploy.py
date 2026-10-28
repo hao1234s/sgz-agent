@@ -1,5 +1,6 @@
 """Prepare a cloud release locally; --apply explicitly uploads and installs it."""
 import argparse
+import codecs
 from datetime import datetime, timezone
 import io
 import ipaddress
@@ -111,6 +112,7 @@ def apply_release(bundle, settings):
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
     release_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:8]
     stage = '/tmp/sgz-deploy-' + release_id
+    secret_pending = False
     try:
         client.connect(host, port=port, username=user, password=settings.get('SSH_PASSWORD') or None,
                        key_filename=settings.get('SSH_KEY_FILE') or None,
@@ -119,6 +121,7 @@ def apply_release(bundle, settings):
             sftp.mkdir(stage, mode=0o700)
             sftp.put(str(bundle), stage + '/release.tgz')
             if api_key:
+                secret_pending = True  # A failed open/write may still have created a remote file.
                 with sftp.file(stage + '/dsh.env', 'w') as secret:
                     secret.chmod(0o600)
                     secret.write('DEEPSEEK_API_KEY=' + api_key + '\n')
@@ -130,22 +133,36 @@ def apply_release(bundle, settings):
         channel.set_combine_stderr(True)
         channel.exec_command(command)
         deadline = time.monotonic() + 1200
-        with channel.makefile('r') as output:
-            # Server install output contains status only; the DSH token stays in its journal.
-            for line in output:
-                print(line.rstrip())
-                if time.monotonic() > deadline:
-                    raise TimeoutError('Deployment timed out; inspect the server before retrying')
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        # Poll even when the server is silent, so the deadline also covers a stuck npm install.
+        while True:
+            if time.monotonic() > deadline:
+                channel.close()
+                raise TimeoutError('Deployment timed out; inspect the server before retrying')
+            if channel.recv_ready():
+                print(decoder.decode(channel.recv(32768)), end='', flush=True)
+            elif channel.exit_status_ready():
+                break
+            else:
+                time.sleep(0.1)
+        print(decoder.decode(b'', final=True), end='', flush=True)
         if channel.recv_exit_status() != 0:
             raise RuntimeError('Remote installer failed; previous configuration was retained or restored')
     finally:
-        if client.get_transport() and client.get_transport().is_active():
-            with client.open_sftp() as sftp:
-                try:
-                    sftp.remove(stage + '/dsh.env')
-                except OSError:
-                    pass
-        client.close()
+        try:
+            if secret_pending and client.get_transport() and client.get_transport().is_active():
+                with client.open_sftp() as sftp:
+                    try:
+                        sftp.remove(stage + '/dsh.env')
+                    except FileNotFoundError:
+                        pass
+                    secret_pending = False
+        except Exception:
+            pass  # Keep the original deployment error; report unconfirmed cleanup below.
+        finally:
+            if secret_pending:
+                print(f'Check removal of the temporary credential file at {stage}/dsh.env on the server.', file=sys.stderr)
+            client.close()
 
 
 def main():
