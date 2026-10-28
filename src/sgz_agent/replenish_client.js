@@ -1,4 +1,19 @@
 // Pure send-time contract; also executed by offline tests.
+function ownCityIdleStatus(raw) {
+  const point=p=>Array.isArray(p)&&p.length===2&&p.every(v=>Number.isInteger(v)&&v>=1&&v<=1620);
+  const has=k=>Object.prototype.hasOwnProperty.call(raw,k);
+  const clear=v=>v===null||v===0;
+  return !!raw&&typeof raw==='object'&&!Array.isArray(raw)&&
+    Number.isSafeInteger(raw.army_id)&&raw.army_id>0&&raw.army_type===1&&
+    Number.isSafeInteger(raw.city_id)&&raw.city_id>0&&raw.dispatch_build_id===raw.city_id&&
+    Array.isArray(raw.status_codes)&&raw.status_codes.length===1&&raw.status_codes[0]===1&&
+    raw.army_status===1&&raw.system_status===1&&
+    raw.movement_end_time===0&&raw.movement_total_time===0&&raw.at_dispatch===true&&
+    point(raw.position)&&point(raw.dispatch_position)&&
+    raw.position[0]===raw.dispatch_position[0]&&raw.position[1]===raw.dispatch_position[1]&&
+    ['command','destination','enemy_army_id','fight_position'].every(has)&&
+    clear(raw.command)&&raw.destination===null&&clear(raw.enemy_army_id)&&raw.fight_position===null;
+}
 function ordinaryReserveVerified(status) {
   return status.is_person_guard===false&&status.person_guard_index===0;
 }
@@ -52,7 +67,7 @@ function refillSnapshot(L,armyId) {
     const row={army_id:String(armyId),home_city_id:String(raw.city_id),phase:'unavailable',
       current_base_id:null,ordinary_verified:false,recruitment_clear:false,
       status_codes:raw.status_codes,is_tying:raw.is_tying,at_dispatch:raw.at_dispatch};
-    if(raw.army_type!==1||raw.is_tying===true||raw.status_codes.length!==1||raw.status_codes[0]!==1)return row;
+    if(!ownCityIdleStatus(raw))return row;
     row.phase='idle';
     if(raw.dispatch_build_id!==raw.city_id||raw.at_dispatch!==true)return row;
     const player=module(L,'logic.player.player_mgr');get(L,player,'city');get(L,-1,'cities');

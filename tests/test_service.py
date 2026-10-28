@@ -144,6 +144,140 @@ def test_refill_excludes_other_jobs_and_hunt_start_without_blocking_shutdown(tmp
     assert errors==[]
 
 
+def test_single_round_dispatch_routes_without_desktop_or_continuous_hunt(tmp_path):
+    from dataclasses import replace
+    service=make_service(tmp_path);service.config=replace(service.config,identity={'world':'w'})
+    calls=[]
+    client=SimpleNamespace(roster_status=lambda:{'complete':True,'armies':[]})
+    coordinator=SimpleNamespace(
+        dispatch=lambda **params:calls.append(params) or {'request_id':params['request_id'],'status':'complete'},
+        status=lambda **params:{'request_id':params.get('request_id'),'status':'unknown'})
+    service._make_dispatch_client=lambda:client
+    service._dispatches=lambda:coordinator
+    service._listen_stop=lambda:None
+    try:
+        with pytest.raises(ValueError,match='world_mismatch'):
+            service.dispatch('hunt_dispatch_start',{'world':'other','request_id':'bad'})
+        assert calls==[]
+        assert service.dispatch('hunt_roster_status',{})=={'complete':True,'armies':[]}
+        result=service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'r','army_ids':['1','2']})
+        assert result['status']=='complete'
+        assert calls==[{'world':'w','request_id':'r','army_ids':['1','2']}]
+        assert service.dispatch('hunt_dispatch_status',{'request_id':'r'})['status']=='unknown'
+        assert service.controller is None and service.hunt_coordinator is None
+    finally: service.close()
+
+
+@pytest.mark.parametrize('method,params',[
+    ('hunt_roster_status',{}),('hunt_dispatch_start',{'world':'w','request_id':'r'})])
+@pytest.mark.parametrize('busy,reason',[
+    ('replenishing','replenish_busy'),('observing','job_busy'),('job','job_busy'),('hunt','hunt_active')])
+def test_native_dispatch_operations_respect_existing_service_activity(tmp_path,method,params,busy,reason):
+    service=make_service(tmp_path)
+    if busy=='job': service.job_thread=SimpleNamespace(is_alive=lambda:True,join=lambda:None)
+    elif busy=='hunt': service.hunt_store.list=lambda:[{'status':'running'}]
+    else: setattr(service,busy,True)
+    try:
+        with pytest.raises(RuntimeError,match=reason): service.dispatch(method,params)
+    finally: service.close()
+
+
+def test_dispatch_keeps_status_and_stop_responsive_and_blocks_competing_native_actions(tmp_path):
+    service=make_service(tmp_path)
+    entered,release=threading.Event(),threading.Event();errors=[]
+    def dispatch(**params): entered.set();assert release.wait(3);return {'status':'complete'}
+    service._dispatches=lambda:SimpleNamespace(dispatch=dispatch,status=lambda **params:{'status':'running'})
+    service._listen_stop=lambda:None
+    def start():
+        try: service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'r'})
+        except Exception as error: errors.append(error)
+    worker=threading.Thread(target=start);worker.start();assert entered.wait(1)
+    try:
+        assert service.dispatch('hunt_dispatch_status',{})=={'status':'running'}
+        for method,params in [('prepare_login',{'request_id':'login'}),('observe_map',{}),
+                ('replenish',{'world':'w','request_id':'refill'}),
+                ('hunt_start',{'world':'w','request_id':'hunt'}),('hunt_resume',{'hunt_id':'h'}),
+                ('hunt_roster_status',{}),('hunt_dispatch_start',{'world':'w','request_id':'r2'})]:
+            with pytest.raises(RuntimeError,match='dispatch_busy'):service.dispatch(method,params)
+        service.request_stop();assert service.stop_event.is_set()
+    finally: release.set();worker.join(2);service.close()
+    assert errors==[]
+
+
+def test_dispatch_reservation_released_after_failure_and_stopped_service_refuses_native_read(tmp_path):
+    service=make_service(tmp_path)
+    def fail(**params): raise RuntimeError('dispatch_unavailable')
+    service._dispatches=lambda:SimpleNamespace(dispatch=fail,status=lambda **params:{})
+    service._listen_stop=lambda:None
+    service._make_dispatch_client=lambda:SimpleNamespace(roster_status=lambda:{'complete':True})
+    try:
+        with pytest.raises(RuntimeError,match='dispatch_unavailable'):
+            service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'r'})
+        assert service.dispatch('hunt_roster_status',{})=={'complete':True}
+        service.stop_event.set()
+        with pytest.raises(RuntimeError,match='stopped'):service.dispatch('hunt_roster_status',{})
+    finally: service.close()
+
+
+def test_shutdown_retains_managed_lease_until_dispatch_native_work_finishes(tmp_path):
+    service=make_service(tmp_path)
+    entered,release,closed=threading.Event(),threading.Event(),threading.Event()
+    def dispatch(**params): entered.set();assert release.wait(3);return {}
+    service._dispatches=lambda:SimpleNamespace(dispatch=dispatch)
+    service._listen_stop=lambda:None
+    worker=threading.Thread(target=lambda:service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'r'}))
+    worker.start();assert entered.wait(1)
+    def close():service.close();closed.set()
+    closer=threading.Thread(target=close);closer.start()
+    try:
+        assert service.stop_event.wait(1)
+        assert not closed.is_set()
+        with pytest.raises(RuntimeError,match='data_directory_busy'):make_service(tmp_path)
+    finally:release.set();worker.join(2);closer.join(2)
+    assert closed.is_set()
+
+
+def test_dispatch_registers_existing_emergency_hotkey_before_action_but_not_roster_read(tmp_path,monkeypatch):
+    from sgz_agent import windows
+    service=make_service(tmp_path);calls=[];listeners=[]
+    class Listener:
+        def __init__(self,callback):self.callback=callback;listeners.append(self)
+        def start(self):calls.append('listen');return self
+        def close(self):calls.append('close')
+    monkeypatch.setattr(windows,'StopListener',Listener)
+    service._make_dispatch_client=lambda:SimpleNamespace(roster_status=lambda:calls.append('roster') or {})
+    service._dispatches=lambda:SimpleNamespace(dispatch=lambda **params:calls.append('dispatch') or {})
+    try:
+        service.dispatch('hunt_roster_status',{})
+        assert calls==['roster'] and service.hotkey is None
+        service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'one'})
+        service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'two'})
+        assert calls==['roster','listen','dispatch','dispatch'] and len(listeners)==1
+        listeners[0].callback()
+        assert service.stop_event.is_set()
+        with pytest.raises(RuntimeError,match='stopped'):
+            service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'three'})
+    finally:service.close()
+
+
+def test_dispatch_hotkey_registration_failure_prevents_action_and_releases_reservation(tmp_path,monkeypatch):
+    from sgz_agent import windows
+    service=make_service(tmp_path);calls=[]
+    class Listener:
+        def __init__(self,callback):pass
+        def start(self):raise RuntimeError('stop_hotkey_unavailable:test')
+    monkeypatch.setattr(windows,'StopListener',Listener)
+    service._dispatches=lambda:SimpleNamespace(dispatch=lambda **params:calls.append('dispatch') or {})
+    service._make_dispatch_client=lambda:SimpleNamespace(roster_status=lambda:{'read':True})
+    try:
+        with pytest.raises(RuntimeError,match='stop_hotkey_unavailable'):
+            service.dispatch('hunt_dispatch_start',{'world':'w','request_id':'blocked'})
+        assert calls==[] and not service.dispatching and service.dispatch_idle.is_set()
+        assert service.hotkey is None
+        assert service.dispatch('hunt_roster_status',{})=={'read':True}
+    finally:service.close()
+
+
 def test_exploration_resumes_only_unverified_targets_and_saves_matching_evidence(tmp_path):
     from dataclasses import replace
     from PIL import Image

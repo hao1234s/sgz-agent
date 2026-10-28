@@ -161,6 +161,47 @@ def test_stop_before_request_does_not_enqueue(native_env):
     assert session.script.enqueued == []
 
 
+def test_expected_not_ready_rejection_preserves_runtime_and_incident(native_env):
+    create, session, config = native_env
+    runtime = create().start()
+    marker = config.data_dir / 'hunt-client-quarantine.json'
+    marker.write_text('{"active":true,"reason":"prior incident"}', encoding='utf-8')
+    session.script.auto_complete = False
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(runtime.ready_army, '7')
+        deadline = time.monotonic() + 1
+        while not session.script.enqueued and time.monotonic() < deadline:
+            time.sleep(.001)
+        job = session.script.enqueued[-1]
+        session.script.emit({'kind': 'request_rejected', 'id': job['id'],
+                             'operation': 'ready', 'reason': 'army_not_ready_for_details'})
+        with pytest.raises(RuntimeError, match='army_not_ready_for_details'):
+            future.result(timeout=1)
+    assert runtime.state()['phase'] == 'running'
+    assert runtime.state()['fault'] is None
+    assert marker.read_text(encoding='utf-8') == '{"active":true,"reason":"prior incident"}'
+    session.script.auto_complete = True
+    assert runtime.roster_status()['operation'] == 'roster'
+
+
+def test_unrecognized_request_rejection_still_quarantines(native_env):
+    create, session, config = native_env
+    runtime = create().start()
+    session.script.auto_complete = False
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(runtime.ready_army, '7')
+        deadline = time.monotonic() + 1
+        while not session.script.enqueued and time.monotonic() < deadline:
+            time.sleep(.001)
+        job = session.script.enqueued[-1]
+        session.script.emit({'kind': 'request_rejected', 'id': job['id'],
+                             'operation': 'ready', 'reason': 'identity_mismatch'})
+        with pytest.raises(RuntimeError):
+            future.result(timeout=1)
+    assert runtime.state()['fault'] is not None
+    assert (config.data_dir / 'hunt-client-quarantine.json').exists()
+
+
 def test_controlled_read_uses_real_marker_but_preserves_it_and_checks_hash_dependency(native_env, monkeypatch):
     create, session, config = native_env
     from sgz_agent import client_api
@@ -359,6 +400,33 @@ context.rpc.exports.enqueue({id:'r3',operation:'roster',args:{}});
 context.rpc.exports.close();hook.onEnter([1]);hook.onLeave();
 assert.equal(calls.length,1);
 assert.throws(()=>context.rpc.exports.enqueue({id:'r4',operation:'roster',args:{}}),/closing/);
+'''
+    result = subprocess.run(['node', '-e', 'const SOURCE=' + json.dumps(source) + ';\n' + harness],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_javascript_not_ready_is_request_rejection_and_next_status_read_works():
+    source = Path('src/sgz_agent/hunt_runtime.js').read_text(encoding='utf-8')
+    harness = r'''
+const assert=require('node:assert/strict'),vm=require('node:vm');
+let hook,messages=[],immediate=[],closed=false;
+const context={OPTIONS:{generation:'g'},rpc:{exports:{}},
+ client:{getExportByName:()=>1},lifecycle:{attach:(a,h)=>{hook=h},
+ close:()=>({closed:true}),finish:m=>{closed=true;messages.push(m)},state:()=>({closed})},
+ send:m=>messages.push(m),setImmediate:f=>immediate.push(f),setInterval:()=>1,clearInterval:()=>{},
+ top:()=>0,settop:()=>{},checkstack:()=>true,identity:()=>{},
+ roster:()=>({complete:true,armies:[]}),readyArmy:()=>{throw Error('army_not_ready_for_details')},
+ createHuntObserver:()=>({install:()=>{},close:()=>{},state:()=>({})})};
+vm.createContext(context);vm.runInContext(SOURCE,context);
+function tick(){hook.onEnter([1]);hook.onLeave();while(immediate.length)immediate.shift()();}
+tick();context.rpc.exports.enqueue({id:'r1',operation:'ready',args:{army_id:7}});tick();
+assert.equal(closed,false);
+assert.equal(messages.at(-1).kind,'request_rejected');
+assert.equal(messages.at(-1).reason,'army_not_ready_for_details');
+context.rpc.exports.enqueue({id:'r2',operation:'roster',args:{}});tick();
+assert.equal(messages.at(-1).kind,'request_result');
+assert.equal(messages.at(-1).id,'r2');
 '''
     result = subprocess.run(['node', '-e', 'const SOURCE=' + json.dumps(source) + ';\n' + harness],
                             capture_output=True, text=True)

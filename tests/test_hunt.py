@@ -109,7 +109,8 @@ def test_unavailable_resume_leaves_campaign_paused_and_blocked(setup):
 
 def test_verified_unsent_resource_wait_does_not_require_manual_resume(setup):
     coordinator, store, client, identity = begin(setup, army_ids=['a'])
-    client.ready['a']['heroes'][0]['troops']=5000
+    for hero in client.ready['a']['heroes']:
+        hero['troops'] = 5000
     client.result={'status':'not_applied','sent':False,'retryable':True,'reason':'reserve_insufficient'}
     coordinator.tick(now=1000)
     coordinator.tick(now=1120)
@@ -198,15 +199,21 @@ def test_tent_recruits_only_when_short_and_waits_for_completion(setup):
     assert len(sent(client)) == 1
 
 
-def test_city_refills_even_if_troops_above_departure_threshold(setup):
+@pytest.mark.parametrize('base_kind',['main','sub','camp'])
+@pytest.mark.parametrize('troops',[19999,20000,27000,30000])
+def test_replenishment_threshold_applies_equally_to_cities_and_camps(setup,base_kind,troops):
     coordinator, store, client = setup
-    for h in client.ready['a']['heroes']: h['troops'] = 9000
+    client.locations[0]['kind']=base_kind
+    for index,h in enumerate(client.ready['a']['heroes']):
+        h['troops']=troops//3+(1 if index<troops%3 else 0)
     coordinator.start(request_id='all',now=1000,army_ids=['a'])
     coordinator.tick(now=1000)
     command = sent(client)[0]
-    assert command['kind'] == 'replenish'
-    assert command['payload']['base_id'] == 'home'
-    assert command['payload']['desired_total'] == 30000
+    if troops>=20000:
+        assert command['kind']=='attack'
+    else:
+        assert command['kind']==('recruit' if base_kind=='camp' else 'replenish')
+        assert command['payload']['desired_total']==30000
 
 
 def test_faster_mobilization_route_precedes_attack_and_updates_return_base(setup):

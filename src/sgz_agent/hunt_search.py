@@ -61,11 +61,14 @@ class AOISearchAccumulator:
     finish closes a bounded collection window, not a region coverage proof.
     Incoming epochs must be captured when decoded, never when replayed.
     """
-    def __init__(self, *, world, center, radius=70, max_age=30):
+    def __init__(self, *, world, center, radius=70, max_age=30, target_conf_id=10):
         self.center = _bounds(center, radius)
+        if type(target_conf_id) is not int or target_conf_id not in (9, 10):
+            raise ValueError('hunt_search_target_profile_invalid')
         if not isinstance(world, str) or not world or not _number(max_age) or not 0 < max_age <= 300:
             raise ValueError('hunt_search_identity_or_age_invalid')
         self.world, self.radius, self.max_age = world, radius, max_age
+        self.target_conf_id = target_conf_id
         self._sessions, self._targets = {}, {}
         self._active = None
         self._rejected = 0
@@ -147,7 +150,7 @@ class AOISearchAccumulator:
         if row.get('proto_type') not in {'add', 'update', 'upd'} or not isinstance(monster, dict):
             return
         if (type(monster.get('use_code')) is not int or monster['use_code'] != 1
-                or type(monster.get('conf_id')) is not int or monster['conf_id'] != 10):
+                or type(monster.get('conf_id')) is not int or monster['conf_id'] != self.target_conf_id):
             return
         pos = monster.get('pos')
         if not isinstance(pos, dict):
@@ -162,7 +165,7 @@ class AOISearchAccumulator:
         distance_sq = (x-self.center[0])**2 + (y-self.center[1])**2
         if distance_sq > self.radius**2:
             return
-        self._targets[identity] = dict(id=identity, x=x, y=y, use_code=1, conf_id=10,
+        self._targets[identity] = dict(id=identity, x=x, y=y, use_code=1, conf_id=self.target_conf_id,
             end_time=end, distance=round(math.sqrt(distance_sq), 4),
             observed_at=received_at, session_id=sid, source='server_aoi_refresh')
 

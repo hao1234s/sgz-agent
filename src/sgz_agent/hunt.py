@@ -287,7 +287,9 @@ class HuntCoordinator:
         if current_base:
             if not _eligible(current_base,army_id): state['reason'] = 'base_permission_unverified'; return
             city = current_base.get('kind') in {'main','sub'}
-            needs_fill = troops < capacity and (city or troops < policy['min_troops'] or state.get('refill_required'))
+            # A city is a refill location, not a reason to refill an otherwise
+            # ready force. Once a low-troop refill starts, finish that workflow.
+            needs_fill = troops < capacity and (troops < policy['min_troops'] or state.get('refill_required'))
             if needs_fill:
                 if current_base.get('can_recruit') is not True:
                     state['reason'] = 'base_cannot_replenish'; return

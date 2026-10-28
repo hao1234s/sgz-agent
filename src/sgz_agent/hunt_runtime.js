@@ -79,7 +79,7 @@ lifecycle.attach(client.getExportByName('lua_pcallk'),{onEnter(args) {
   runtimeLastNative=Date.now()/1000;
   if(runtimeInstalled&&!runtimeJob)return;
   runtimeBusy=true;this.runtimeTracked=true;
-  const L=args[0],saved=top(L);
+  const L=args[0],saved=top(L);let activeJob=null;
   try {
     if(!checkstack(L,256))throw Error('hunt_runtime_stack_capacity');
     identity(L);
@@ -89,12 +89,20 @@ lifecycle.attach(client.getExportByName('lua_pcallk'),{onEnter(args) {
       runtimeHeartbeat=setInterval(()=>runtimePublishEvent({kind:'runtime_heartbeat',
         epoch:Date.now()/1000,last_native_at:runtimeLastNative,observer:runtimeObserver.state()}),15000);
     } else {
-      const job=runtimeJob;runtimeJob=null;
+      const job=runtimeJob;runtimeJob=null;activeJob=job;
       const data=runtimeRead(L,job);
       runtimeOutbox={kind:'request_result',id:job.id,operation:job.operation,data};
     }
     settop(L,saved);identity(L);
-  }catch(error){runtimeFail(error);}
+  }catch(error){
+    const reason=String(error.message||error);
+    if(activeJob&&['ready','attack_inputs'].includes(activeJob.operation)&&reason==='army_not_ready_for_details') {
+      try {
+        settop(L,saved);identity(L);
+        runtimeOutbox={kind:'request_rejected',id:activeJob.id,operation:activeJob.operation,reason};
+      }catch(identityError){runtimeFail(identityError);}
+    }else runtimeFail(error);
+  }
   finally{settop(L,saved);}
 },onLeave() {
   if(this.runtimeTracked!==true)return;

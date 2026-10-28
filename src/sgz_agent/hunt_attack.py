@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from .hunt_client import _positive_id, _position
 from .hunt_runtime import HuntNativeRuntime
+from .hunt_policy import search_radius, target_profile
 from .lease import DataLease
 
 
@@ -31,10 +32,23 @@ def morale_floor(config):
     return value
 
 
-def attack_request(plan):
+def _plan_target_profile(plan):
     target = plan.get('target', {})
-    if target.get('use_code') != 1 or target.get('conf_id') != 10:
-        raise ValueError('target_not_giant')
+    if (type(target.get('use_code')) is not int or target['use_code'] != 1
+            or type(target.get('conf_id')) is not int or target['conf_id'] not in (9,10)):
+        raise ValueError('attack_target_profile_invalid')
+    conf = target['conf_id']
+    expected = {'use_code':1, 'conf_id':conf, 'display_name':'重徒兵' if conf == 9 else '巨戟士',
+                'defender_count':2 if conf == 9 else 3}
+    supplied = plan.get('target_profile')
+    if ((supplied is None and conf != 10) or supplied is not None and _encode(supplied) != _encode(expected)):
+        raise ValueError('attack_target_profile_invalid')
+    return expected
+
+
+def attack_request(plan):
+    _plan_target_profile(plan)
+    target = plan['target']
     _positive_id(target.get('id'))
     position = _position([target.get('x'), target.get('y')])
     return {'cmd': 12, 'army_id': _positive_id(plan.get('army_id')),
@@ -74,6 +88,45 @@ def _encode(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
 
 
+def validate_departure_witness(record, row, *, now):
+    """Pure validation shared by tentative polling and durable reconciliation."""
+    if not isinstance(row, dict):
+        raise ValueError('departure_witness_invalid')
+    plan, old = record['plan'], record['result'] or {}
+    sent_at = record['claimed_at']
+    observed, end, duration = (row.get(k) for k in
+                              ('observed_at','movement_end_time','movement_total_time'))
+    numbers = (now,sent_at,observed,end,duration)
+    expected_heroes = [int(h['id']) for h in plan['heroes']]
+    formation_changed = ('hero_ids' in row and (not isinstance(row['hero_ids'], list)
+        or row['hero_ids'] != expected_heroes or any(type(h) is not int for h in row['hero_ids'])))
+    at_origin = row.get('position') == plan['position']
+    # Coordinates may still show the launch city before the first movement tick.
+    # This existing exception requires complete own-force marching proof.
+    origin_proven = (type(row.get('army_type')) is int and row['army_type'] == 1
+        and row.get('status_codes') == [2] and all(type(v) is int for v in row['status_codes'])
+        and type(row.get('army_status')) is int and row['army_status'] == 2
+        and type(row.get('system_status')) is int and row['system_status'] == 2
+        and isinstance(row.get('hero_ids'), list)
+        and row['hero_ids'] == expected_heroes
+        and all(type(h) is int for h in row['hero_ids'])
+        and str(row.get('dispatch_build_id')) == plan['base_id']
+        and 'enemy_army_id' in row and row['enemy_army_id'] is None
+        and 'fight_position' in row and row['fight_position'] is None) if at_origin else False
+    if (record['world'] != plan.get('world')
+            or record['status'] not in ('unknown','accepted') or old.get('sent') is not True
+            or any(type(v) not in (int,float) or not math.isfinite(v) for v in numbers)
+            or not 0 <= now-observed <= 30 or observed < sent_at or end <= observed
+            or abs((end-duration)-sent_at) > 10
+            or duration != plan['preview']['need_time']
+            or str(row.get('army_id')) != record['army_id'] or row.get('status_codes') != [2]
+            or row.get('command') != 12 or row.get('auto_return') is not True
+            or formation_changed or at_origin and not origin_proven
+            or row.get('destination') != [plan['target']['x'],plan['target']['y']]):
+        raise ValueError('departure_witness_invalid')
+    _position(row.get('position'))
+
+
 class AttackJournal(AbstractContextManager):
     """One-shot send claims survive restart; outstanding attacks fence both keys."""
     def __init__(self, directory):
@@ -91,6 +144,9 @@ class AttackJournal(AbstractContextManager):
                 WHERE status IN ('prepared','submitted','accepted','unknown');
             CREATE UNIQUE INDEX IF NOT EXISTS attack_target_pending ON attacks(world,target_id)
                 WHERE status IN ('prepared','submitted','accepted','unknown');
+            CREATE TABLE IF NOT EXISTS retained_attack_targets (
+                world TEXT, target_id TEXT, attack_id TEXT, spawn TEXT,
+                PRIMARY KEY(world,target_id), UNIQUE(world,spawn));
         ''')
 
     def __exit__(self, *args):
@@ -124,6 +180,15 @@ class AttackJournal(AbstractContextManager):
                 if previous['world'] != world or previous['plan'] != payload:
                     raise ValueError('attack_request_conflict')
                 return self._decode(previous)
+            target = plan['target']
+            end = target.get('end_time')
+            spawn = (_encode([target['x'],target['y'],target['use_code'],target['conf_id'],float(end)])
+                     if type(end) in (int,float) and math.isfinite(end) else None)
+            retained = self.db.execute('SELECT 1 FROM retained_attack_targets WHERE world=? '
+                'AND (target_id=? OR (? IS NOT NULL AND spawn=?)) LIMIT 1',
+                (world,target['id'],spawn,spawn)).fetchone()
+            if retained:
+                raise RuntimeError('attack_target_retained')
             pending = self.pending(world)
             if any(r['army_id'] == plan['army_id'] for r in pending):
                 raise RuntimeError('attack_army_pending')
@@ -157,22 +222,8 @@ class AttackJournal(AbstractContextManager):
     def reconcile_departure(self, identity, row, *, now):
         """A fresh own-status read may resolve a sent command; it never releases it."""
         record = self.get(identity)
-        plan, old = record['plan'], record['result'] or {}
-        sent_at = record['claimed_at']
-        observed, end, duration = (row.get(k) for k in
-                                  ('observed_at','movement_end_time','movement_total_time'))
-        numbers = (now,sent_at,observed,end,duration)
-        if (record['status'] not in ('unknown','accepted') or old.get('sent') is not True
-                or any(type(v) not in (int,float) or not math.isfinite(v) for v in numbers)
-                or not 0 <= now-observed <= 30 or observed < sent_at or end <= observed
-                or abs((end-duration)-sent_at) > 10
-                or duration != plan['preview']['need_time']
-                or str(row.get('army_id')) != record['army_id'] or row.get('status_codes') != [2]
-                or row.get('command') != 12 or row.get('auto_return') is not True
-                or row.get('position') == plan['position']
-                or row.get('destination') != [plan['target']['x'],plan['target']['y']]):
-            raise ValueError('departure_witness_invalid')
-        _position(row.get('position'))
+        validate_departure_witness(record, row, now=now)
+        old = record['result'] or {}
         receipt = {**old, 'status':'accepted','departure_verified':True,'encounter_complete':False,
                    'reason':'fresh_matching_army_departure','departure_snapshot':deepcopy(row)}
         with self.db:
@@ -189,19 +240,24 @@ class AttackJournal(AbstractContextManager):
         """
         record = self.get(identity)
         plan, old, proof = record['plan'], record['result'] or {}, target_witness
+        if plan.get('launch_mode') == 'stationary_field':
+            raise ValueError('field_return_destination_unverified')
+        profile = _plan_target_profile(plan)
+        waves = profile['defender_count']
         t = plan['target']; observed = proof.get('observed_at')
         if (record['status'] != 'accepted' or old.get('departure_verified') is not True
                 or old.get('sent') is not True or plan.get('defenders_verified') is not True
                 or str(proof.get('entity_id')) != str(t['id'])
                 or [proof.get('x'),proof.get('y')] != [t['x'],t['y']]
-                or proof.get('use_code') != 1 or proof.get('conf_id') != 10
+                or type(proof.get('use_code')) is not int or proof['use_code'] != profile['use_code']
+                or type(proof.get('conf_id')) is not int or proof['conf_id'] != profile['conf_id']
                 or type(observed) not in (int,float) or not math.isfinite(observed)
                 or not 0 <= plan['created_at']-observed <= 30):
             raise ValueError('victory_target_witness_invalid')
         monster = str(_positive_id(proof.get('monster_id')))
         expected_heroes = [int(h['id']) for h in plan['heroes']]
-        if (not isinstance(reports,list) or len(reports) != 3
-                or len({str(r.get('id')) for r in reports}) != 3):
+        if (not isinstance(reports,list) or len(reports) != waves
+                or len({str(r.get('id')) for r in reports}) != waves):
             raise ValueError('victory_waves_incomplete')
         post = post_status; post_time = post.get('observed_at')
         if (type(post_time) not in (int,float) or not math.isfinite(post_time)
@@ -225,7 +281,7 @@ class AttackJournal(AbstractContextManager):
                     or type(when) not in (int,float) or not math.isfinite(when)
                     or not record['claimed_at'] <= when <= post_time):
                 raise ValueError('victory_report_mismatch')
-        receipt = {**old,'encounter_complete':True,'result':'victory','completed_waves':3,
+        receipt = {**old,'encounter_complete':True,'result':'victory','completed_waves':waves,
                    'target_identity_witness':deepcopy(proof),'reports':deepcopy(reports),
                    'post_encounter_status':deepcopy(post),'automatic_return_observed':True,
                    'returned_to_base':returned,'readiness_revalidated':False,
@@ -246,6 +302,12 @@ class ControlledAttackRuntime(HuntNativeRuntime):
         attack_request(plan)
         if plan.get('world') != config.identity.get('world'):
             raise ValueError('attack_world_mismatch')
+        if _plan_target_profile(plan) != target_profile(config):
+            raise ValueError('attack_target_profile_not_authorized')
+        radius = plan.get('search_radius', 70)
+        if (type(radius) is not int or radius not in (70, 140)
+                or radius > search_radius(config, world=plan['world'])):
+            raise ValueError('attack_search_policy_not_authorized')
         floor = plan.get('min_morale')
         if type(floor) not in (int, float) or not math.isfinite(floor) or floor < morale_floor(config):
             raise ValueError('attack_morale_policy_not_authorized')
@@ -304,37 +366,135 @@ def _assert_external_clear(config, army_id):
 
 def execute_controlled(config, *, request_id, plan, runtime_factory=ControlledAttackRuntime):
     """Public bounded test entrypoint. Production hunting remains unavailable."""
+    with closing(DataLease(config.data_dir)):
+        return execute_under_lease(config, request_id=request_id, plan=plan, runtime_factory=runtime_factory)
+
+
+def _departure_runtime_clean(state, generation, phase):
+    return (isinstance(state, dict) and state.get('generation') == generation
+            and state.get('phase') == phase and state.get('bridge_retained') is False
+            and 'fault' in state and state['fault'] is None
+            and 'cleanup_fault' in state and state['cleanup_fault'] is None)
+
+
+def _read_departure_status(runtime, record, *, timeout):
+    """Read one same-generation status snapshot with a temporary RPC budget."""
+    absent = object()
+    previous = getattr(runtime, 'request_timeout', absent)
+    try:
+        runtime.request_timeout = timeout
+        raw = runtime.roster_status()
+    finally:
+        if previous is absent:
+            del runtime.request_timeout
+        else:
+            runtime.request_timeout = previous
+    if not isinstance(raw, dict) or raw.get('complete') is not True or not isinstance(raw.get('armies'), list):
+        return raw, None
+    matches = [row for row in raw['armies'] if isinstance(row, dict)
+               and str(row.get('army_id')) == record['army_id']]
+    if len(matches) == 1:
+        try:
+            validate_departure_witness(record, matches[0], now=time.time())
+        except (ValueError, TypeError, KeyError):
+            pass
+        else:
+            return raw, deepcopy(matches[0])
+    return raw, None
+
+
+def execute_under_lease(config, *, request_id, plan, runtime_factory=ControlledAttackRuntime,
+                        stop_event=None):
+    """Fixed send used by a caller already owning the service's data lease."""
     if plan.get('world') != config.identity['world']:
         raise ValueError('attack_world_mismatch')
-    with closing(DataLease(config.data_dir)), AttackJournal(config.data_dir) as journal:
+    with AttackJournal(config.data_dir) as journal:
+        if stop_event is not None and stop_event.is_set():
+            previous = journal.db.execute('SELECT * FROM attacks WHERE request_id=?', (request_id,)).fetchone()
+            if previous is not None:
+                record = journal._decode(previous)
+                if record['world'] != config.identity['world'] or _encode(record['plan']) != _encode(plan):
+                    raise ValueError('attack_request_conflict')
+                return record['result'] or {'status':'unknown','sent':None,'reason':'previous_send_claim:no_replay'}
+            return {'status':'rejected','sent':False,'reason':'stopped_before_send_claim'}
         _assert_external_clear(config, plan['army_id'])
         record = journal.prepare(request_id, config.identity['world'], plan)
         if record['claimed_at'] is not None:
             return record['result'] or {'status':'unknown','sent':None,'reason':'previous_send_claim:no_replay'}
         if not journal.claim(record['id']):
             return {'status':'unknown','sent':None,'reason':'send_claim_lost:no_replay'}
-        runtime = None
+        record = journal.get(record['id'])
+        runtime, departure_row = None, None
+        observation_started = None
         receipt = {'status':'unknown','sent':None,'reason':'native_outcome_unconfirmed'}
         try:
-            runtime = runtime_factory(config, plan=plan, controlled_verification=True)
+            if stop_event is not None and stop_event.is_set():
+                raise RuntimeError('stopped_after_send_claim:no_resend')
+            runtime = runtime_factory(config, plan=plan, controlled_verification=True,
+                                      **({'stop_event':stop_event} if stop_event is not None else {}))
             runtime.start()
+            if stop_event is not None and stop_event.is_set():
+                raise RuntimeError('stopped_after_send_claim:no_resend')
             submitted = runtime.request('attack')
             if submitted.get('status') == 'rejected' and submitted.get('sent') is False:
                 receipt = submitted
             elif submitted.get('status') == 'submitted' and submitted.get('sent') is True:
-                deadline = time.monotonic() + 15
-                while time.monotonic() < deadline:
+                observation_started = time.monotonic()
+                deadline = observation_started + 15
+                schedule = (.25,.75,1.5,3,5,10,15)
+                next_poll = 0
+                diagnostics = {'departure_poll_count':0, 'status_observed_after_claim_seconds':None}
+                staged = {**record, 'status':'unknown', 'result':{'status':'unknown','sent':True}}
+                events = []
+                while True:
+                    tick = time.monotonic()
+                    if stop_event is not None and stop_event.is_set():
+                        receipt['reason'] = 'stopped_after_send_claim:no_resend'
+                        break
                     rows = runtime.events.events(generation=runtime.generation)
                     events = [{**r['event'], 'sequence':r['sequence']} for r in rows]
                     receipt = command_receipt(attack_request(plan), events)
                     if receipt['status'] in ('accepted','rejected'):
                         break
-                    if runtime.state().get('fault'):
+                    if not _departure_runtime_clean(runtime.state(), runtime.generation, 'running'):
                         break
-                    time.sleep(.05)
+                    tick = time.monotonic()
+                    elapsed = tick-observation_started
+                    if next_poll < len(schedule) and elapsed >= schedule[next_poll]:
+                        # Skip missed slots rather than issuing a burst after a
+                        # slow callback. One final healthy read retains the old
+                        # fallback, bounded to a quarter-second RPC grace.
+                        while next_poll+1 < len(schedule) and elapsed >= schedule[next_poll+1]:
+                            next_poll += 1
+                        budget = min(1,deadline-tick) if tick < deadline else .25
+                        diagnostics['departure_poll_count'] += 1
+                        try:
+                            raw, candidate = _read_departure_status(runtime, staged, timeout=budget)
+                            diagnostics['departure_status_read'] = deepcopy(raw)
+                        except Exception as error:
+                            diagnostics['departure_read_error'] = str(error)
+                            break  # Never retry a native status RPC error.
+                        if candidate is not None:
+                            departure_row = candidate
+                            diagnostics['status_observed_after_claim_seconds'] = candidate['observed_at']-record['claimed_at']
+                            break
+                        next_poll += 1
+                    if tick >= deadline:
+                        break
+                    remaining = deadline-time.monotonic()
+                    if remaining <= 0:
+                        continue
+                    until_poll = observation_started+schedule[next_poll]-time.monotonic() if next_poll < len(schedule) else remaining
+                    time.sleep(max(0,min(.05,remaining,until_poll)))
                 if receipt['status'] == 'unknown':
                     receipt['sent'] = submitted.get('sent')
                 receipt['events'] = events
+                acks = [e['epoch']-record['claimed_at'] for e in events
+                        if e.get('name') == 'cs_army_cmd.response'
+                        and type(e.get('epoch')) in (int,float) and math.isfinite(e['epoch'])
+                        and e['epoch'] >= record['claimed_at']]
+                receipt.update(diagnostics)
+                receipt['untagged_ack_response_after_claim_seconds'] = min(acks) if acks else None
             else:
                 receipt = {'status':'unknown','sent':submitted.get('sent'),
                            'reason':'native_send_unconfirmed','native_result':submitted}
@@ -347,8 +507,16 @@ def execute_controlled(config, *, request_id, plan, runtime_factory=ControlledAt
                     runtime.close()
                     receipt['runtime_final'] = runtime.state()
                 except Exception as error:
-                    receipt = {'status':'unknown','sent':None,'reason':'cleanup_unconfirmed:'+str(error),
+                    receipt = {**receipt,'status':'unknown','reason':'cleanup_unconfirmed:'+str(error),
                                'runtime_final':runtime.state()}
             receipt['command_id'] = record['id']
+            if observation_started is not None:
+                receipt['confirmation_elapsed_seconds'] = max(0,time.monotonic()-observation_started)
             journal.finish(record['id'], receipt)
+        if (departure_row is not None and receipt['status'] == 'unknown' and receipt.get('sent') is True
+                and _departure_runtime_clean(receipt.get('runtime_final'), runtime.generation, 'closed')):
+            try:
+                receipt = journal.reconcile_departure(record['id'], departure_row, now=time.time())
+            except (ValueError, TypeError, KeyError):
+                pass  # Keep the original unknown receipt and its durable fence.
         return receipt

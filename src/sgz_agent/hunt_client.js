@@ -101,10 +101,17 @@ function statusOnly(L, army) {
   // No troop, morale, battle-report, target-map or hero-manager reads here.
   row.enemy_army_id = value(L, st, 'enemy_army_id');
   settop(L, army);
+  for(const [fieldName,method] of [['army_status','get_army_status'],['system_status','get_status_type']]) {
+    row[fieldName]=scalar(L,invoke(L,army,method));settop(L,army);
+  }
   return row;
 }
 function isReady(row) {
-  if(row.army_type!==1 || row.is_tying===true || row.status_codes.length!==1)return false;
+  if(row.army_type!==1 || row.status_codes.length!==1)return false;
+  const confirmed=[1,3,19,43].includes(row.status_codes[0])&&
+    row.army_status===row.status_codes[0]&&row.system_status===row.status_codes[0]&&
+    row.movement_end_time===0&&row.movement_total_time===0;
+  if((row.is_tying===true||'army_status' in row||'system_status' in row)&&!confirmed)return false;
   if([1,3,43].includes(row.status_codes[0]))return true;
   const p=row.position,d=row.dispatch_position;
   return row.status_codes[0]===19 && Array.isArray(p) && p.length===2 &&
@@ -192,6 +199,35 @@ function decodedReturnIndex(stackTop, resultCount) {
   return stackTop - resultCount + 1;
 }
 let previewStarted=false, previewData=null, previewAmbiguous=false, ownPreviewCall=false;
+function validatePreviewWaypoints(rows) {
+  if(!Array.isArray(rows)||rows.length>4096)throw Error('hunt_preview_path_limit');
+  const result=[];
+  for(const [slot,p] of rows) {
+    if(!Number.isInteger(slot)||slot<1||slot>4096||result[slot-1]!==undefined||
+        !Array.isArray(p)||p.length!==2||!p.every(v=>Number.isInteger(v)&&v>=1&&v<=1620))
+      throw Error('hunt_preview_path_invalid');
+    result[slot-1]=p;
+  }
+  if(result.length!==rows.length)throw Error('hunt_preview_path_sparse');
+  return result;
+}
+function readPreviewWaypoints(L,index) {
+  const saved=top(L),rows=[];
+  try {
+    get(L,index,'path');
+    if(type(L,-1)===0)return null;
+    if(type(L,-1)!==5)throw Error('hunt_preview_path_invalid');
+    const list=top(L);pushnil(L);
+    while(next(L,list)) {
+      if(rows.length>=4096)throw Error('hunt_preview_path_limit');
+      const slot=scalar(L,-2),p=top(L);
+      if(type(L,p)!==5)throw Error('hunt_preview_path_invalid');
+      rows.push([slot,[value(L,p,'row'),value(L,p,'col')]]);
+      settop(L,p-1);
+    }
+    return validatePreviewWaypoints(rows);
+  } finally {settop(L,saved);}
+}
 function startPreview(L) {
   const request=OPTIONS.request;
   if (!request || !Number.isSafeInteger(request.army_id) || request.army_id<=0 ||
@@ -230,6 +266,7 @@ function startPreview(L) {
         if(!checkstack(state,32)||type(state,resultIndex)!==5)throw Error('hunt_preview_response_invalid');
         const response={};
         for(const k of ['result','need_time','prepare_time','path_len','speed','need_energy','need_mp','speed_up_factor','rush_len'])response[k]=value(state,resultIndex,k);
+        response.path_waypoints=readPreviewWaypoints(state,resultIndex);
         if(previewData)previewAmbiguous=true;
         previewData=response;
       }catch(e){lifecycle.finish({kind:'failure',reason:String(e.message||e)});finished=true;}

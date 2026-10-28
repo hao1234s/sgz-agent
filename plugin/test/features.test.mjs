@@ -45,6 +45,24 @@ test('multi-army hunt tools separate read status from persistent commands',()=>{
   for(const name of ['hunt_start','hunt_stop','hunt_resume'])assert.equal(get(name).isConcurrencySafe(),false);
 });
 
+test('single-round dispatch exposes fixed managed operations and separate journal status',()=>{
+  const {get,sections}=setup();
+  const roster=get('hunt_roster_status'),start=get('hunt_dispatch_start'),status=get('hunt_dispatch_status');
+  assert.ok(roster);assert.ok(start);assert.ok(status);
+  assert.deepEqual(roster.parameters.required,[]);
+  assert.deepEqual(Object.keys(roster.parameters.properties),[]);
+  assert.deepEqual(start.parameters.required,['world','request_id']);
+  assert.deepEqual(Object.keys(start.parameters.properties).sort(),['army_ids','request_id','world']);
+  assert.equal(start.parameters.properties.army_ids.maxItems,50);
+  assert.deepEqual(status.parameters.required,[]);
+  assert.deepEqual(Object.keys(status.parameters.properties),['request_id']);
+  assert.equal(roster.isConcurrencySafe(),false);
+  assert.equal(start.isConcurrencySafe(),false);
+  assert.equal(status.isConcurrencySafe(),true);
+  assert.match(start.description,/单轮/);
+  assert.ok(sections.some(s=>s.text.includes('sgz_hunt_dispatch_start')));
+});
+
 test('replenishment exposes only full API refill and a read-only preview',()=>{
   const {get,sections}=setup();const tool=get('replenish');
   assert.ok(tool);assert.equal(tool.isConcurrencySafe(),false);

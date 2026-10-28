@@ -1,0 +1,50 @@
+[      30ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/kissy/k/1.4.4/seed-min.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/rgn/aliyun_assets?renderer=js:0
+[      31ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/kissy/k/1.4.4/seed-min.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/rgn/aliyun_assets?renderer=js:0
+[      31ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/??aliyun/www-dpl/0.7.2/knight/js/help/observer.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/rgn/aliyun_assets?renderer=js:0
+[      31ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/??aliyun/www-dpl/0.5.73/knight/js/base-all.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/rgn/aliyun_assets?renderer=js:0
+[      31ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/dawn/polyfill/1.0.8/js/tms-lego.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/rgn/aliyun_assets?renderer=js:0
+[      81ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://cloud-assets.alicdn.com/alicdn/dawn/user-tracker/latest/js/index.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/ace-lego/core/head-logic?nonce=NONCE_PLACEHOLDER:0
+[      81ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://cloud-assets.alicdn.com/alicdn/dawn/user-tracker/latest/js/index.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/ace-lego/core/head-logic?nonce=NONCE_PLACEHOLDER:0
+[      82ms] [WARNING] A parser-blocking, cross site (i.e. different eTLD+1) script, https://g.alicdn.com/dawn/smarter-engine/1.0.3/js/index.js, is invoked via document.write. The network request for this script MAY be blocked by the browser in this or a future page load due to poor network connectivity. If blocked in this page load, it will be confirmed in a subsequent console message. See https://www.chromestatus.com/feature/5718547946799104 for more details. @ https://www.aliyun.com/ace-lego/core/head-logic?nonce=NONCE_PLACEHOLDER:0
+[     691ms] [WARNING] 头部DOM没有找到 @ https://g.alicdn.com/aliyun/nav-loader/js/index.js:0
+[     723ms] [ERROR] Permissions policy violation: gyroscope is not allowed in this document. @ https://g.alicdn.com/secdev/sufei_data/3.9.14/index.js:0
+[     723ms] [ERROR] Permissions policy violation: accelerometer is not allowed in this document. @ https://g.alicdn.com/secdev/sufei_data/3.9.14/index.js:0
+[     723ms] [WARNING] The deviceorientation events are blocked by permissions policy. See https://github.com/w3c/webappsec-permissions-policy/blob/master/features.md#sensor-features @ https://g.alicdn.com/secdev/sufei_data/3.9.14/index.js:0
+[     733ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://log.mmstat.com/v.gif?logtype=1&title=%E9%98%BF%E9%87%8C%E4%BA%91&pre=https%3A%2F%2Fwanwang.aliyun.com%2Fdomain%2Fsearchresult%2F%3Fkeyword%3Dheisexizhuang%26suffix%3D.cn&scr=2560x1440&_p_url=https%3A%2F%2Fwanwang.aliyun.com%2Fbuy%2Fcommonbuy%3Fspm%3D5176.29045373.J_1524515190.dr_29045373_1793198305500_heisexizhuang.cn.336d93f2PHjKTu%26domainCartTradeParams%3Ddr_29045373_1793198305570%26domain%3Dheisexizhuang.cn%26duration%3D12&cna=oPdoI9410TMCAXx+AFDj2LBm&spm-url=5176.29045373.J_1524515190.dr_29045373_1793198305500_heisexizhuang.cn.336d93f2PHjKTu&spm-cnt=5176.28759163.0.0.23707e8bOmCrlx&category=&uidaplus=&aplus&yunid=%22nick986870%2a%2a%2a%2a%22&yunpk=1125842797697252&current_pk=1125842797697252&channel=&cps=&p=1&o=win10&b=chrome156&s=2560x1440&w=webkit&ism=pc&cache=6eef6a1&lver=8.15.25&jsver=aplus_std&pver=0.7.12&tag=1&stag=-1&lstag=-1&_slog=0:0
+[     738ms] [WARNING] 尾部DOM没有找到 @ https://g.alicdn.com/aliyun/nav-loader/js/index.js:0
+[     786ms] [LOG] Wed Oct 28 2026 22:43:28 GMT+0800 (中国标准时间) @ https://g.alicdn.com/AWSC/et/1.83.41/et_f.js:1
+[     787ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[     809ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aliyun_com.homon.homon-module:0
+[     976ms] [LOG] Wed Oct 28 2026 22:43:28 GMT+0800 (中国标准时间) @ https://g.alicdn.com/AWSC/et/1.83.41/et_f.js:1
+[    1084ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1112ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1112ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1113ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1420ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1430ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1456ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1503ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1657ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1746ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1939ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1975ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    1996ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    2004ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    2112ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    2161ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    2262ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    2670ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    3814ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aliyun_com.homon.tracker-event:0
+[    7819ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    7941ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aliyun_com.homon.homon-module:0
+[    8328ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    8875ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[    9021ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aliyun_com.homon.homon-module:0
+[    9375ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   10324ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aliyun_com.homon.tracker-scm:0
+[   11043ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   11242ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   11544ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   11649ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   11769ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0
+[   11786ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://gm.mmstat.com/aes.1.1:0

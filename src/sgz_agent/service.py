@@ -44,6 +44,10 @@ class AgentService:
         self.closed = False
         self.observing = False
         self.replenishing = False
+        self.dispatching = False
+        self.dispatch_idle = threading.Event()
+        self.dispatch_idle.set()
+        self.dispatch_coordinator = None
         self.resources_closed = False
         self.hunt_store = HuntStore(config.data_dir)
         self.hunt_coordinator = None
@@ -91,6 +95,17 @@ class AgentService:
                 self.hunt_coordinator.start_background()
             return self.hunt_coordinator
 
+    def _make_dispatch_client(self):
+        from .hunt_dispatch_client import LiveDispatchClient
+        return LiveDispatchClient(self.config, stop_event=self.stop_event)
+
+    def _dispatches(self):
+        with self.lock:
+            if self.dispatch_coordinator is None:
+                from .hunt_dispatch import DispatchCoordinator
+                self.dispatch_coordinator = DispatchCoordinator(self.config, self._make_dispatch_client())
+            return self.dispatch_coordinator
+
     def _listen_stop(self):
         from .windows import StopListener
         with self.lock:
@@ -112,11 +127,32 @@ class AgentService:
             raise RuntimeError("service_closed")
         if method == 'assess_combat':
             return assess_combat(**params)
+        if method == 'hunt_dispatch_status':
+            return self._dispatches().status(**params)
+        if method in {'hunt_roster_status','hunt_dispatch_start'}:
+            if method == 'hunt_dispatch_start': self._validate_world(params.get('world'))
+            with self.lock:
+                if self.dispatching: raise RuntimeError('dispatch_busy')
+                if self.replenishing: raise RuntimeError('replenish_busy')
+                if self.closed or self.stop_event.is_set(): raise RuntimeError('stopped')
+                if self.observing or self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
+                if any(c['status']=='running' for c in self.hunt_store.list()): raise RuntimeError('hunt_active')
+                self.dispatching = True
+                self.dispatch_idle.clear()
+            try:
+                if method == 'hunt_roster_status': return self._make_dispatch_client().roster_status()
+                self._listen_stop()
+                return self._dispatches().dispatch(**params)
+            finally:
+                with self.lock:
+                    self.dispatching = False
+                    self.dispatch_idle.set()
         if method in {'replenish','replenish_reconcile'}:
             self._validate_world(params.get('world'))
             from .replenish import Replenisher
             from .replenish_client import ReplenishClient
             with self.lock:
+                if self.dispatching: raise RuntimeError('dispatch_busy')
                 if self.replenishing: raise RuntimeError('replenish_busy')
                 if self.closed or self.stop_event.is_set(): raise RuntimeError('stopped')
                 if self.observing or self.job_thread and self.job_thread.is_alive(): raise RuntimeError('job_busy')
@@ -129,6 +165,7 @@ class AgentService:
                 with self.lock: self.replenishing = False
         if method in {'hunt_start','hunt_status','hunt_stop','hunt_resume'}:
             with self.lock:
+                if method in {'hunt_start','hunt_resume'} and self.dispatching: raise RuntimeError('dispatch_busy')
                 if method in {'hunt_start','hunt_resume'} and self.replenishing: raise RuntimeError('replenish_busy')
                 coordinator = self._hunts()
                 if method == 'hunt_status': return coordinator.status(**params)
@@ -161,6 +198,12 @@ class AgentService:
                         "bandit_recognition_calibrated": bool(self.config.ui.get('navigation', {}).get('target_detail_region')) if self.config.ui.get('navigation') else False,
                         "roster_calibrated": bool(self.config.ui.get('roster', {}).get('pages')),
                         "combat_assessment": True, "multi_army_scheduler": True,
+                        "single_round_dispatch": {
+                            **self._make_dispatch_client().capabilities(),
+                            "active": self.dispatching,
+                            "roster_tool": "sgz_hunt_roster_status",
+                            "start_tool": "sgz_hunt_dispatch_start",
+                            "status_tool": "sgz_hunt_dispatch_status"},
                         "replenish": {"available": replenish_reason is None, "reason": replenish_reason,
                                       "read_available": replenish_read_reason is None, "read_reason": replenish_read_reason,
                                       "reconcile_tool": "sgz_replenish_reconcile",
@@ -190,6 +233,7 @@ class AgentService:
             return {"path": str(self.store.export(params["job_id"], params.get("format", "json")))}
         if method == "observe_map":
             with self.lock:
+                if self.dispatching: raise RuntimeError('dispatch_busy')
                 if self.replenishing: raise RuntimeError('replenish_busy')
                 if self.observing or self.job_thread and self.job_thread.is_alive():
                     raise RuntimeError("job_busy_use_game_status")
@@ -246,6 +290,8 @@ class AgentService:
 
     def _start(self, kind, request_id, payload, resume=False):
         with self.lock:
+            if self.dispatching:
+                raise RuntimeError('dispatch_busy')
             if self.replenishing:
                 raise RuntimeError('replenish_busy')
             if self.closed:
@@ -436,6 +482,7 @@ class AgentService:
 
     def close(self):
         self.request_stop()
+        self.dispatch_idle.wait()
         if self.job_thread:
             self.job_thread.join()
         if self.controller:

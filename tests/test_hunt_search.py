@@ -82,6 +82,22 @@ def test_later_delete_and_invalid_updates_remove_previously_seen_target():
     assert acc.result(now=105)['targets'] == []
 
 
+def test_explicit_nine_search_accepts_only_ordinary_heavy_infantry():
+    acc=AOISearchAccumulator(world='w',center=[100,100],target_conf_id=9)
+    acc.begin(session_id=11,center=[100,100],sent_at=100)
+    feed(acc,[target(1,conf_id=10),target(2,conf_id=9,use_code=3),target(3,conf_id=9)])
+    result=acc.result(now=103)
+    assert [row['id'] for row in result['targets']]==['3']
+    assert result['targets'][0]['use_code']==1 and result['targets'][0]['conf_id']==9
+    assert result['complete'] is False
+
+
+@pytest.mark.parametrize('conf_id',[8,11,9.0,True,None])
+def test_search_profile_cannot_enable_other_npc_kinds(conf_id):
+    with pytest.raises(ValueError,match='target'):
+        AOISearchAccumulator(world='w',center=[100,100],target_conf_id=conf_id)
+
+
 def test_stale_and_truncated_content_is_not_relabelled_fresh():
     acc = search()
     feed(acc, {'1': target(), 'truncated': True})

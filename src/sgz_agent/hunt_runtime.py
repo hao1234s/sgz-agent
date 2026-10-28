@@ -18,6 +18,13 @@ from .client_api import _bridge_lock, readiness
 from .native_session import close_native_session, retained_quarantine
 
 
+class HuntRequestRejected(RuntimeError):
+    """A guarded game-state read was refused without a native runtime fault."""
+
+
+REQUEST_REJECTIONS = frozenset({'army_not_ready_for_details'})
+
+
 def _controlled_readiness(config):
     """Base read checks for an explicitly authorized diagnostic generation.
 
@@ -191,6 +198,17 @@ class HuntNativeRuntime:
                         raise RuntimeError('hunt_runtime_operation_mismatch')
                     pending['data'] = payload['data']
                     pending['done'].set()
+                elif kind == 'request_rejected':
+                    pending = self._pending
+                    if not pending or payload.get('id') != pending['id'] or pending['done'].is_set():
+                        return
+                    if payload.get('operation') != pending['operation']:
+                        raise RuntimeError('hunt_runtime_operation_mismatch')
+                    reason = payload.get('reason')
+                    if reason not in REQUEST_REJECTIONS or pending['operation'] not in {'ready', 'attack_inputs'}:
+                        raise RuntimeError('hunt_runtime_unrecognized_rejection:' + str(reason))
+                    pending['rejection'] = reason
+                    pending['done'].set()
                 elif kind == 'protocol_event':
                     event = {k: payload[k] for k in ('name', 'direction', 'data', 'epoch')}
                     event['identity'] = dict(self.config.identity)
@@ -363,7 +381,10 @@ class HuntNativeRuntime:
                     if time.monotonic() >= deadline:
                         raise TimeoutError('hunt_runtime_result_unknown:request_timeout')
                 if 'error' in pending: raise RuntimeError(pending['error'])
+                if 'rejection' in pending: raise HuntRequestRejected(pending['rejection'])
                 return pending['data']
+            except HuntRequestRejected:
+                raise
             except Exception as error:
                 self._trip(str(error), quarantine='stopped' not in str(error))
                 raise

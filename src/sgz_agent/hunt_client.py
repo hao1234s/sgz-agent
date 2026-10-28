@@ -5,6 +5,7 @@ does not establish that a gameplay command or a complete search was validated.
 """
 import json
 import math
+from copy import deepcopy
 from pathlib import Path
 import threading
 import time
@@ -72,6 +73,46 @@ def preview_request(army_id, position, *, kind="attack", from_position=None):
     if from_position is not None:
         result["from_pos"] = _position(from_position)
     return result
+
+
+def normalize_route_preview(raw, *, origin, target):
+    """Bind the proven node-count convention to the current preview's endpoints.
+
+    The current native projection includes compressed path waypoints. Live UI
+    distance and server travel times establish that path_len includes the origin
+    node; waypoint count itself is not the number of traversed cells. Legacy
+    offline fixtures without that projection retain an unverified estimate.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError('preview_path_invalid')
+    _position(origin); _position(target)
+    keys = ('actual_path_len', 'path_length_verified', 'path_length_source')
+    if 'path_waypoints' not in raw:
+        if any(k in raw for k in keys):
+            raise ValueError('preview_path_proof_missing')
+        return deepcopy(raw)
+    path, nodes = raw['path_waypoints'], raw.get('path_len')
+    if (not isinstance(path, list) or not 1 <= len(path) <= 4096
+            or type(nodes) is not int or not 1 <= nodes < 2**53
+            or type(raw.get('result')) is not int or raw['result'] != 1
+            or path[0] != list(origin) or path[-1] != list(target)):
+        raise ValueError('preview_path_endpoints_or_nodes_invalid')
+    try:
+        for point in path:
+            _position(point)
+    except ValueError as error:
+        raise ValueError('preview_path_waypoints_invalid') from error
+    # Each ordinary grid move changes each coordinate by at most one. This is
+    # only a feasibility bound; the server node count supplies charged cells.
+    minimum_moves = sum(max(abs(b[0]-a[0]), abs(b[1]-a[1])) for a, b in zip(path, path[1:]))
+    if nodes-1 < minimum_moves:
+        raise ValueError('preview_path_node_count_infeasible')
+    derived = {'actual_path_len': nodes-1, 'path_length_verified': True,
+               'path_length_source': 'cs_army_preview.path_nodes_minus_origin'}
+    for key, expected in derived.items():
+        if key in raw and (type(raw[key]) is not type(expected) or raw[key] != expected):
+            raise ValueError('preview_path_derived_fields_forged')
+    return {**deepcopy(raw), **derived}
 
 
 def normalize_preview(raw, target_id, *, kind="direct", base_id=None):
@@ -178,13 +219,21 @@ def _arrived_dispatch(raw):
 
 def normalize_army(raw):
     codes = set(raw.get("status_codes", []))
+    coherent = (len(codes) == 1 and type(raw.get('army_status')) is int
+                and type(raw.get('system_status')) is int
+                and raw['army_status'] == raw['system_status'] == next(iter(codes)))
+    confirmed = (len(codes) == 1 and next(iter(codes)) in (1,3,19,43)
+                 and raw.get('army_status') == next(iter(codes))
+                 and raw.get('system_status') == next(iter(codes))
+                 and raw.get('movement_end_time') == 0 and raw.get('movement_total_time') == 0)
     phase = "unknown"
     # Win/lose are intermediate battle states, never a completion assertion.
     if 25 in codes:
         phase = "draw"
     elif codes & {24, 26}:
         phase = "fighting"
-    elif raw.get("is_tying") is True:
+    elif (raw.get("is_tying") is True or 'army_status' in raw or 'system_status' in raw) and not (
+            confirmed or coherent and codes <= {2,4,19,29,106}):
         phase = "unknown"
     elif codes & {4, 29}:
         phase = "returning"

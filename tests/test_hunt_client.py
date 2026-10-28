@@ -280,6 +280,25 @@ def test_unproven_tying_flag_does_not_label_idle_army_as_battle_draw():
     assert row["status_reason"] == "tying_flag_semantics_unverified"
 
 
+def test_consistent_idle_getters_and_zero_movement_resolve_lingering_flag():
+    raw=arrived_dispatch(is_tying=True,army_status=19,system_status=19)
+    assert hunt_client.normalize_army(raw)['phase']=='stationed'
+    source=Path(hunt_client.__file__).with_suffix('.js').read_text(encoding='utf-8')
+    guard=source[source.index('function isReady(row) {'):source.index('function roster(L) {')]
+    rows=[raw,{**raw,'system_status':25},{**raw,'movement_total_time':1},
+          {**raw,'status_codes':[25]},{**raw,'army_status':None}]
+    result=subprocess.run(['node','-e',guard+';console.log(JSON.stringify('+json.dumps(rows)+'.map(isReady)))'],capture_output=True,text=True,check=True)
+    assert json.loads(result.stdout)==[True,False,False,False,False]
+    for r in rows[1:]:assert hunt_client.normalize_army(r)['phase'] not in ('idle','stationed')
+
+
+@pytest.mark.parametrize('code,phase',[(2,'marching'),(4,'returning'),(19,'relocating')])
+def test_consistent_active_getters_preserve_active_phase(code,phase):
+    row=raw_army(status_codes=[code],army_status=code,system_status=code,is_tying=True,
+                  movement_total_time=100,movement_end_time=200)
+    assert hunt_client.normalize_army(row)['phase']==phase
+
+
 def test_native_decoder_reads_first_of_multiple_lua_return_values():
     # Executes the actual JS helper in an isolated VM. Native wrappers are inert;
     # no Frida process or game connection exists in this synthetic regression.
@@ -337,3 +356,16 @@ def test_native_cleanup_requires_confirmed_quiescence(monkeypatch,tmp_path,drain
             client._read('roster')
         assert actions==['close']
         assert client._quarantine()['active'] is True
+def test_preview_waypoints_preserve_order_and_reject_sparse_or_invalid_native_rows():
+    import json, subprocess
+    from pathlib import Path
+    source=Path('src/sgz_agent/hunt_client.js').read_text(encoding='utf-8')
+    start=source.index('function validatePreviewWaypoints(')
+    end=source.index('\nfunction readPreviewWaypoints(',start)
+    program=source[start:end]+'''\n
+const assert=require('node:assert/strict');
+assert.deepEqual(validatePreviewWaypoints([[2,[579,822]],[1,[591,828]]]),[[591,828],[579,822]]);
+for(const rows of [[[2,[10,10]]],[[1,[10,10]],[1,[11,11]]],[[1,[0,10]]],[[1,[10.5,10]]]])
+  assert.throws(()=>validatePreviewWaypoints(rows));
+'''
+    subprocess.run(['node','-e',program],check=True,capture_output=True,text=True)
