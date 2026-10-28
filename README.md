@@ -59,3 +59,7 @@ powershell -ExecutionPolicy Bypass -File agent\scripts\Start-Agent.ps1
 ```
 
 安装脚本继续备份 DSH 包管理元数据。迁移不自动中断正在运行的 worker；新布局的实机集成需在插件更新后核验。
+
+## 云端部署
+
+独立 DSH CLI、前端和 Nginx 的部署脚本位于 [`agent/deploy/`](agent/deploy/README.md)。支持模型 API Key，默认只构建发布包；显式 `--apply` 才连接服务器。Windows 游戏工具仍保留在本机。各级目录的 `.env` 与 `.env.*` 已忽略提交，`.env.example` 模板仍可提交。

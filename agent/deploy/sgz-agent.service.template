@@ -1,0 +1,22 @@
+[Unit]
+Description=Standalone DeepSeek Harness cloud service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sgz-agent
+Group=sgz-agent
+WorkingDirectory=/var/lib/sgz-agent/workspace
+Environment=HOME=/var/lib/sgz-agent
+Environment=DSH_HOME=/var/lib/sgz-agent/.dsh
+EnvironmentFile=/etc/sgz-agent/dsh.env
+ExecStart=/usr/bin/node /opt/sgz-agent/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js web --host 127.0.0.1 --port 3080 --no-open --public-url https://@DOMAIN@/dsh/ --trusted-host @DOMAIN@
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

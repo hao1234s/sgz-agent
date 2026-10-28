@@ -1,0 +1,77 @@
+# Included by nginx.conf inside its http {} block.
+map $http_upgrade $sgz_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+# Never log query strings or Referer: DSH launch URLs contain an auth token.
+log_format sgz_agent '$remote_addr [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
+
+server {
+    listen 80;
+    server_name @DOMAIN@;
+    access_log /var/log/nginx/sgz-agent.access.log sgz_agent;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+    location / {
+        return 308 https://@DOMAIN@$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name @DOMAIN@;
+    ssl_certificate /etc/letsencrypt/live/@DOMAIN@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@DOMAIN@/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    root /var/www/sgz-agent/current/frontend;
+    index index.html;
+    access_log /var/log/nginx/sgz-agent.access.log sgz_agent;
+    # Error logs can include full request lines; keep them off for token-bearing routes.
+    error_log /dev/null crit;
+    client_max_body_size 20m;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+    location = /dsh {
+        return 308 /dsh/$is_args$args;
+    }
+    location /dsh/ {
+        proxy_pass http://127.0.0.1:3080/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $sgz_connection_upgrade;
+        proxy_cookie_path / /dsh/;
+        proxy_cookie_flags ~ secure;
+        proxy_redirect http://127.0.0.1:3080/ /dsh/;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_next_upstream off;
+    }
+    location /agent-api/ {
+        default_type application/json;
+        return 503 '{"error":"Custom SSE backend is not configured; use DSH Agent"}';
+    }
+    location ~ /\. {
+        deny all;
+    }
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}
