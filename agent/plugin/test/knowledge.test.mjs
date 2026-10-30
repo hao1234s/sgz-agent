@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {apply} from '../dist/index.js';
 
-test('knowledge tools are read-only and accept explicit category and season filters',()=>{
+test('knowledge tools are read-only and accept explicit category and season filters',async()=>{
   const registered=[];
-  apply({tools:{register:t=>registered.push(t)},systemPrompt:{section:()=>{}},effect:()=>{}},{rootDir:process.cwd()});
+  await apply({tools:{register:t=>registered.push(t)},systemPrompt:{section:()=>{}},effect:()=>{}},{rootDir:process.cwd()});
   const search=registered.find(t=>t.name==='sgz_knowledge_search');
   assert.ok(search);
   assert.deepEqual(search.parameters.required,['query']);

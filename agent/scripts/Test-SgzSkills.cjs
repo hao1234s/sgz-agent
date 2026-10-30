@@ -31,7 +31,7 @@ const {pathToFileURL} = require('node:url');
     {id:'skills', name:'@deepseek-ai/dsh-skill'},
     {id:'project-skills', name:'@deepseek-ai/dsh-skill-filesystem', config:{
       providerName:'sgz-filesystem', includeDefaultRoots:false,
-      customSkillDirs:[path.join(root,'agent/skills')], watch:true}},
+      customSkillDirs:[path.join(root,'agent/skills/conversation'),path.join(root,'agent/skills/client')], watch:true}},
     {id:'sgz-agent', name:pathToFileURL(path.join(pluginRoot,'dist/index.js')).href,
       config:{rootDir:root,autoStart:false,configPath:assessmentConfig}},
   ], null, 2));
@@ -44,7 +44,7 @@ const {pathToFileURL} = require('node:url');
     assert.equal(skill.content, undefined, 'discovery must not eagerly load instructions');
     const loaded = await ctx.tools.get('sgz_skill_load').execute({name:skill.name});
     assert.ok(loaded.content.trim().length > 0);
-    assert.equal(path.resolve(loaded.resourceBase.path), path.join(root, 'agent/skills/sgz-giant-halberdier'));
+    assert.equal(path.resolve(loaded.resourceBase.path), path.join(root, 'agent/skills/client/sgz-giant-halberdier'));
     const source = fs.readFileSync(path.join(loaded.resourceBase.path, 'SKILL.md'), 'utf8');
     const body = source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
     assert.equal(loaded.content.trim().replace(/\r\n/g, '\n'), body.replace(/\r\n/g, '\n'),

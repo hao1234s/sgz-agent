@@ -13,6 +13,7 @@ __pycache__/
 node_modules/
 agent/plugin/dist/
 backend/config/*.local.json
+backend/config/**/*.local.json
 .playwright-mcp/
 artifacts/
 .DS_Store

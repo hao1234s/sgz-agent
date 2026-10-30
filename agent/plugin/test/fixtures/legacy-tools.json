@@ -1,0 +1,837 @@
+[
+  {
+    "name": "sgz_hunt_roster_status",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_hunt_dispatch_start",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "army_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        }
+      },
+      "required": [
+        "world",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_hunt_dispatch_status",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_replenish_reconcile",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "world",
+        "command_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_replenish",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "army_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "world",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_hunt_start",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "army_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "world",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_hunt_status",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hunt_id": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_hunt_stop",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hunt_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hunt_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_hunt_resume",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hunt_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hunt_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_assess_combat",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "resolved",
+            "marching",
+            "fighting",
+            "draw",
+            "unknown",
+            "returning",
+            "recruiting",
+            "resting"
+          ]
+        },
+        "heroes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "is_main": {
+                "type": "boolean"
+              },
+              "troops": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "capacity": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "attribute_advantage": {
+                "type": "number",
+                "description": "可选、已核验的同目标属性差项 A；缺失时不估算完整输出比。"
+              }
+            },
+            "required": [
+              "id",
+              "is_main",
+              "troops",
+              "capacity"
+            ]
+          }
+        },
+        "arrival_morale": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "observation_age_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "morale_rule_verified": {
+          "type": "boolean",
+          "default": false
+        },
+        "min_total_troops": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "当前任务的兵力政策门槛，不是游戏胜利公式；巨戟士任务当前填20000"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ruleset": {
+              "type": "string",
+              "minLength": 1,
+              "description": "客户端版本、赛季/剧本及士气/战斗规则的准确标识"
+            },
+            "team_build": {
+              "type": "string",
+              "minLength": 1,
+              "description": "完整编制配置指纹：等级/属性/红度/战法及等级/兵书/装备/适性/科技/兵种；不能只填队名"
+            },
+            "target_profile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "目标模式、类型、等级、每队守军配置指纹；不能只填巨戟士等名称"
+            },
+            "defender_waves": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "ruleset",
+            "team_build",
+            "target_profile",
+            "defender_waves"
+          ]
+        },
+        "reports": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "ruleset": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "客户端版本、赛季/剧本及士气/战斗规则的准确标识"
+                  },
+                  "team_build": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "完整编制配置指纹：等级/属性/红度/战法及等级/兵书/装备/适性/科技/兵种；不能只填队名"
+                  },
+                  "target_profile": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "目标模式、类型、等级、每队守军配置指纹；不能只填巨戟士等名称"
+                  },
+                  "defender_waves": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "ruleset",
+                  "team_build",
+                  "target_profile",
+                  "defender_waves"
+                ]
+              },
+              "heroes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "is_main": {
+                      "type": "boolean"
+                    },
+                    "troops": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "capacity": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "attribute_advantage": {
+                      "type": "number",
+                      "description": "可选、已核验的同目标属性差项 A；缺失时不估算完整输出比。"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "is_main",
+                    "troops",
+                    "capacity"
+                  ]
+                }
+              },
+              "arrival_morale": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "encounter_complete": {
+                "type": "boolean"
+              },
+              "result": {
+                "type": "string",
+                "enum": [
+                  "victory",
+                  "defeat",
+                  "draw",
+                  "interrupted"
+                ]
+              },
+              "completed_waves": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "id",
+              "source",
+              "context",
+              "heroes",
+              "arrival_morale",
+              "encounter_complete",
+              "result",
+              "completed_waves"
+            ]
+          }
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_game_status",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_protocol_status",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_prepare_login",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_observe_map",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_inspect_target",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "world": {
+          "type": "string"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_id",
+        "world",
+        "x",
+        "y"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_explore_region",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "world": {
+          "type": "string"
+        },
+        "x0": {
+          "type": "integer"
+        },
+        "y0": {
+          "type": "integer"
+        },
+        "x1": {
+          "type": "integer"
+        },
+        "y1": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_id",
+        "world",
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_scan_region",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "world": {
+          "type": "string"
+        },
+        "x0": {
+          "type": "integer"
+        },
+        "y0": {
+          "type": "integer"
+        },
+        "x1": {
+          "type": "integer"
+        },
+        "y1": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "api",
+            "ui"
+          ],
+          "default": "api"
+        }
+      },
+      "required": [
+        "request_id",
+        "world",
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_search_map",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "x0": {
+          "type": "integer"
+        },
+        "y0": {
+          "type": "integer"
+        },
+        "x1": {
+          "type": "integer"
+        },
+        "y1": {
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "any",
+            "resource",
+            "bandit"
+          ]
+        },
+        "resource": {
+          "type": "string",
+          "enum": [
+            "铁矿",
+            "木材",
+            "石料",
+            "粮食"
+          ]
+        },
+        "min_level": {
+          "type": "integer"
+        },
+        "max_level": {
+          "type": "integer"
+        },
+        "max_age_seconds": {
+          "type": "integer"
+        },
+        "include_stale": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "offset": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "world",
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_refresh_roster",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "world": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "world"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_query_roster",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "world": {
+          "type": "string"
+        },
+        "city_id": {
+          "type": "string"
+        },
+        "city_kind": {
+          "type": "string",
+          "enum": [
+            "main",
+            "sub"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "stationed",
+            "marching",
+            "returning",
+            "fighting",
+            "recruiting",
+            "resting",
+            "unknown"
+          ]
+        },
+        "max_age_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "world"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_skills_list",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_skill_load",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_pause_task",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_resume_task",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_export_results",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "csv"
+          ]
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": false
+  },
+  {
+    "name": "sgz_knowledge_search",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "general",
+            "tactic",
+            "mechanic"
+          ]
+        },
+        "season": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  },
+  {
+    "name": "sgz_knowledge_status",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "concurrency": true
+  }
+]

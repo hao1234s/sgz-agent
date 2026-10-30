@@ -9,7 +9,7 @@ import time
 from types import SimpleNamespace
 
 import frida
-from sgz_agent.native_session import close_native_session
+from sgz_agent.client.native_session import close_native_session
 
 
 child_code = '''
@@ -43,7 +43,7 @@ try:
     child_info=json.loads(child.stdout.readline());pid=child_info['pid']
     assert pid==child.pid
     session=frida.get_local_device().attach(pid)
-    helper=(Path(__file__).parents[1]/'src/sgz_agent/native_lifecycle.js').read_text(encoding='utf-8')
+    helper=(Path(__file__).parents[1]/'src/sgz_agent/client/native_lifecycle.js').read_text(encoding='utf-8')
     if '--baseline-before-close-gate' in sys.argv:
         helper=helper.replace("          if (closing) return; // A queued entry after detach starts no Lua work.\n",'')
     program='const FIXTURE_ADDRESS='+json.dumps(child_info['address'])+';\n'+helper+r'''

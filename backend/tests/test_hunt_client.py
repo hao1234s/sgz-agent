@@ -359,7 +359,7 @@ def test_native_cleanup_requires_confirmed_quiescence(monkeypatch,tmp_path,drain
 def test_preview_waypoints_preserve_order_and_reject_sparse_or_invalid_native_rows():
     import json, subprocess
     from pathlib import Path
-    source=(Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_client.js').read_text(encoding='utf-8')
+    source=(Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_client.js').read_text(encoding='utf-8')
     start=source.index('function validatePreviewWaypoints(')
     end=source.index('\nfunction readPreviewWaypoints(',start)
     program=source[start:end]+'''\n

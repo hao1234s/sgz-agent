@@ -121,7 +121,7 @@ def test_plan_is_bounded_deterministic_and_includes_circle_edges_without_claimin
 def test_javascript_collector_serializes_queries_and_captures_only_matching_sessions():
     node = shutil.which('node')
     assert node
-    source = Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_search.js'
+    source = Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_search.js'
     harness = r'''
 const {collectAOISearch} = require(process.argv[1]);
 let listener, clock=100, active=0, maxActive=0, requests=[];
@@ -154,7 +154,7 @@ let listener, clock=100, active=0, maxActive=0, requests=[];
 def test_javascript_collector_stops_sending_and_always_unsubscribes(mode):
     node = shutil.which('node')
     assert node
-    source = Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_search.js'
+    source = Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_search.js'
     harness = r'''
 const {collectAOISearch}=require(process.argv[1]);
 let count=0,cleaned=false;

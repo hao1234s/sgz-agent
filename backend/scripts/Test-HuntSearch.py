@@ -5,9 +5,9 @@ from pathlib import Path
 import json
 import time
 
-from sgz_agent.config import load_config
-from sgz_agent.hunt_client import HuntClient
-from sgz_agent.lease import DataLease
+from sgz_agent.client.config import default_config_path, load_config
+from sgz_agent.client.hunt_client import HuntClient
+from sgz_agent.client.lease import DataLease
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     args = parser.parse_args()
     if not args.approved_controlled_session:
         parser.error('Controlled session authorization required.')
-    config = load_config(Path(__file__).resolve().parents[1] / 'config/game.local.json')
+    config = load_config(default_config_path(Path(__file__).resolve().parents[2]))
     with closing(DataLease(config.data_dir)):
         client = HuntClient(config, controlled_verification=True)
         rows = client.roster_status()['armies']

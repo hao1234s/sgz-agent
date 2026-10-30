@@ -87,3 +87,7 @@ DSH 会话保存在 `/var/lib/sgz-agent/.dsh`，部署前端不会清空它。�
 生产服务器尚未执行安装；需要实际域名/证书、SSH 用户和模型 Key 后才能完成远程部署与模型联调。
 
 实现依据：[DSH CLI](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cli-help.md)、[官方反向代理说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/public-deployments.md)、[API Key 配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm-deepseek-api-key/README.md)、[Nginx WebSocket](https://nginx.org/en/docs/http/websocket.html)。
+
+## 功能隔离边界
+
+现有发布继续部署 DSH CLI、前端和 Nginx，不包含 Windows 游戏后端。仓库的 chat/knowledge/local profile 由 `agent/scripts/Render-Profile.mjs` 生成；本次隔离不修改服务器配置、安装插件或迁移数据。若后续需要给云端加入项目会话技能，应单独选择 chat profile 并验证资源路径；不直接复用 Windows local 配置。

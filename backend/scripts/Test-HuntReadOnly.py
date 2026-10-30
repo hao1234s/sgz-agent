@@ -6,10 +6,10 @@ import threading
 import time
 
 import frida
-from sgz_agent import hunt_client
-from sgz_agent.client_api import _fingerprint, SUPPORTED_SHA256, _bridge_lock
-from sgz_agent.config import load_config
-from sgz_agent.native_session import drain_native_script
+from sgz_agent.client import hunt_client
+from sgz_agent.client.client_api import _fingerprint, SUPPORTED_SHA256, _bridge_lock
+from sgz_agent.client.config import default_config_path, load_config
+from sgz_agent.client.native_session import drain_native_script
 
 
 def main():
@@ -22,7 +22,7 @@ def main():
         parser.error('Select only one diagnostic mode.')
     if not args.approved_controlled_session:
         parser.error('This diagnostic requires separate approval for one controlled session.')
-    config = load_config(Path(__file__).resolve().parents[1] / 'config/game.local.json')
+    config = load_config(default_config_path(Path(__file__).resolve().parents[2]))
     stat = config.executable.stat()
     if _fingerprint(str(config.executable), stat.st_size, stat.st_mtime_ns) != SUPPORTED_SHA256:
         raise RuntimeError('unverified_client_hash')

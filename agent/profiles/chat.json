@@ -1,0 +1,7 @@
+{
+  "capabilities": {
+    "analysis": true,
+    "client": false,
+    "knowledge": false
+  }
+}

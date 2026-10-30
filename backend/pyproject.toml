@@ -6,12 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "sgz-dsh-agent"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
-dependencies = ["mss==10.2.0", "Pillow==12.3.0"]
+dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
-ocr = ["paddleocr==3.7.0", "paddlepaddle==3.3.1"]
-knowledge = ["qdrant-client>=1.15,<2", "fastembed>=0.7,<1"]
+desktop = ["mss==10.2.0", "Pillow==12.3.0"]
+ocr = ["Pillow==12.3.0", "numpy==2.3.5", "paddleocr==3.7.0", "paddlepaddle==3.3.1"]
+knowledge = ["qdrant-client>=1.15,<2", "fastembed>=0.7,<1", "portalocker==4.4.1"]
 api = ["frida==17.24.3"]
 
 [project.scripts]
@@ -21,7 +22,8 @@ sgz-agent = "sgz_agent.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sgz_agent = ["client_api.js", "hunt_client.js", "native_lifecycle.js", "replenish_client.js", "hunt_search.js", "hunt_search_bridge.js", "hunt_runtime.js", "hunt_observer.js", "hunt_attack.js"]
+"sgz_agent.knowledge" = ["data/*.json"]
+"sgz_agent.client" = ["client_api.js", "hunt_client.js", "native_lifecycle.js", "replenish_client.js", "hunt_search.js", "hunt_search_bridge.js", "hunt_runtime.js", "hunt_observer.js", "hunt_attack.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

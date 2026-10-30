@@ -372,7 +372,7 @@ def test_native_error_poisoning_is_persisted_and_cleanup_failure_retains_bridge(
 
 
 def test_javascript_queue_runs_only_on_native_boundary_and_close_cancels_queued_read():
-    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_runtime.js').read_text(encoding='utf-8')
+    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_runtime.js').read_text(encoding='utf-8')
     harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let hook,messages=[],calls=[],immediate=[];
@@ -407,7 +407,7 @@ assert.throws(()=>context.rpc.exports.enqueue({id:'r4',operation:'roster',args:{
 
 
 def test_javascript_not_ready_is_request_rejection_and_next_status_read_works():
-    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_runtime.js').read_text(encoding='utf-8')
+    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_runtime.js').read_text(encoding='utf-8')
     harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let hook,messages=[],immediate=[],closed=false;
@@ -434,7 +434,7 @@ assert.equal(messages.at(-1).id,'r2');
 
 
 def test_passive_javascript_projection_does_not_access_active_troops_morale_or_heroes():
-    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_observer.js').read_text(encoding='utf-8')
+    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_observer.js').read_text(encoding='utf-8')
     harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let stack=[{entity:{eid:99,army:{hero_slots:[{troops:123}]},shiqi:{shiqi:80},owner:{role_id:44},
@@ -460,7 +460,7 @@ for(const forbidden of ['army','hero_slots','troops','shiqi','owner','cur_shiqi'
 
 
 def test_passive_refill_projections_capture_pool_identity_and_outgoing_targets_only():
-    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_observer.js').read_text(encoding='utf-8')
+    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_observer.js').read_text(encoding='utf-8')
     harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let stack=[],readKeys=[];
@@ -492,7 +492,7 @@ assert.deepEqual(project(7709,{army_id:7,pos:{row:1,col:2},cur_shiqi:44}),{army_
 
 
 def test_ready_runtime_projects_only_guarded_raw_morale_parameters():
-    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/hunt_runtime.js').read_text(encoding='utf-8')
+    source = (Path(__file__).resolve().parents[1] / 'src/sgz_agent/client/hunt_runtime.js').read_text(encoding='utf-8')
     harness = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let stack=[],reads=[],phase='idle',race=false;

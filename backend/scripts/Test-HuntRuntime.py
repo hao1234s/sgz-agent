@@ -5,9 +5,9 @@ from pathlib import Path
 import json
 import time
 
-from sgz_agent.config import load_config
-from sgz_agent.hunt_runtime import HuntNativeRuntime
-from sgz_agent.lease import DataLease
+from sgz_agent.client.config import default_config_path, load_config
+from sgz_agent.client.hunt_runtime import HuntNativeRuntime
+from sgz_agent.client.lease import DataLease
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
     args=parser.parse_args()
     if not args.approved_controlled_session or not 1 <= args.seconds <= 1800:
         parser.error('Controlled authorization and bounded duration required.')
-    config=load_config(Path(__file__).resolve().parents[1] / 'config/game.local.json')
+    config=load_config(default_config_path(Path(__file__).resolve().parents[2]))
     directory=config.data_dir/'network-probe'/('runtime-check-'+time.strftime('%Y%m%d-%H%M%S'))
     directory.mkdir(parents=True,exist_ok=False)
     stop_file=directory/'stop'

@@ -5,7 +5,8 @@
         providerName: sgz-filesystem
         includeDefaultRoots: false
         customSkillDirs:
-          - D:/agent/agent/skills
+          - D:/agent/agent/skills/conversation
+          - D:/agent/agent/skills/client
         watch: true
         watchFollowSymlinks: false
     - id: sgz-agent

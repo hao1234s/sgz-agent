@@ -43,8 +43,8 @@ const ctl=createQueuedAOIBridge({army_id:1,center:[100,100],radius:70,
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''
     result = subprocess.run([node, '-e', harness,
-                             str(root/'src/sgz_agent/hunt_search_bridge.js'),
-                             str(root/'src/sgz_agent/hunt_search.js'), mode],
+                             str(root/'src/sgz_agent/client/hunt_search_bridge.js'),
+                             str(root/'src/sgz_agent/client/hunt_search.js'), mode],
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -95,7 +95,7 @@ console.log(JSON.stringify([
 ]));
 '''
     output = subprocess.run([node, '-e', harness,
-                             str(root/'src/sgz_agent/hunt_search_bridge.js')],
+                             str(root/'src/sgz_agent/client/hunt_search_bridge.js')],
                             capture_output=True, text=True, timeout=10)
     assert output.returncode == 0, output.stderr
     assert json.loads(output.stdout) == [True, False, False, False, False, False]
@@ -123,7 +123,7 @@ const index=staticResourceTable('L','S1.cn.res_pro.map_attr',{
 console.log(JSON.stringify({index,visited}));
 '''
     output = subprocess.run([node, '-e', harness,
-                             str(root/'src/sgz_agent/hunt_search_bridge.js')],
+                             str(root/'src/sgz_agent/client/hunt_search_bridge.js')],
                             capture_output=True, text=True, timeout=10)
     assert output.returncode == 0, output.stderr
     assert json.loads(output.stdout) == {'index': 2, 'visited': [1, 2]}

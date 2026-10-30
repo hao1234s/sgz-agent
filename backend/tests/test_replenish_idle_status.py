@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 
 
-SOURCE=Path(__file__).parents[1]/'src/sgz_agent/replenish_client.js'
+SOURCE=Path(__file__).parents[1]/'src/sgz_agent/client/replenish_client.js'
 
 
 def idle_status():

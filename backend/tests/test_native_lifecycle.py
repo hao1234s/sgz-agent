@@ -5,7 +5,7 @@ import subprocess
 
 
 def test_result_is_not_delivered_until_all_native_calls_return_and_hooks_detach():
-    source = Path(__file__).parents[1] / 'src/sgz_agent/native_lifecycle.js'
+    source = Path(__file__).parents[1] / 'src/sgz_agent/client/native_lifecycle.js'
     program = r'''
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
 const queue=[],calls=[],hooks=[];

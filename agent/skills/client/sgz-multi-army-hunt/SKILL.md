@@ -38,6 +38,10 @@ description: 用户要求三国志战略版所有队伍开始打野、多队持�
 
 任务、每队阶段、目标预占、命令结果保存在 `.state/hunts.sqlite3`。重启恢复运行中的任务前先观察并对账；发送超时/结果未知的命令不能重发，也不能另选目标或回城掩盖不确定性。明确暂停的任务保持暂停，只有用户要求继续才恢复。
 
-调动和补兵知识持久化于 `.state/knowledge/knowledge.sqlite3`、`records.jsonl` 和向量索引，来源包为 `backend/config/knowledge-logistics.json`。本技能不把一次查询或聊天记忆称作知识落库。
+调动和补兵知识持久化于 `.state/knowledge/knowledge.sqlite3`、`records.jsonl` 和向量索引，来源包为 `backend/config/knowledge/knowledge-logistics.json`。本技能不把一次查询或聊天记忆称作知识落库。
 
 这项持续任务的循环与补满策略优先于单次 `sgz-giant-halberdier` 的“一次后停止”默认；单队战中等待、目标分类和用户允许自动“坚持出征”的约束继续适用。正常讨伐/普通征兵消耗随启动任务授权；不足时等或报告，不购买。未知命令、资源不足、队伍能力不足或断线独立记录，不用其他队伍替代、不重复派遣。恢复运行不自动解除客户端稳定性隔离。
+
+## 可选能力
+
+先确认当前注册的工具。仅当 `sgz_assess_combat` 可用时加载并调用计算技能；仅当 `sgz_knowledge_search` 可用时检索知识。对应能力关闭时明确说明缺口，不编造计算或检索结果，不自行启用模块。

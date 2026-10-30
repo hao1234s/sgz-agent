@@ -130,7 +130,7 @@ class KnowledgeBase:
         recovered with a repeated import or the existing index command. Catalog
         rows already in SQLite are never updated by a curated import.
         """
-        from .knowledge_sources import read_curated
+        from .sources import read_curated
         with self.lock:
             pack_id, incoming = read_curated(source)
             current = {row["id"]: json.loads(row["data"])

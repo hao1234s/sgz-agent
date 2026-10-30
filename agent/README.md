@@ -1,8 +1,65 @@
 # 三国志·战略版 DSH Agent
 
+会话、纯计算、知识库和 Windows 客户端按能力装配。新模板位于 `profiles/`；不提供新能力配置的旧安装仍启用全部功能。
+
+## 能力配置与安装
+
+| 模板 | analysis | knowledge | client |
+| --- | --- | --- | --- |
+| chat | 开，首次计算启动 | 关 | 关 |
+| knowledge | 开，首次计算启动 | 开，首次检索启动 | 关 |
+| local | 开，首次计算启动 | 开，首次检索启动 | 开，按 autoStart 启动 |
+
+`capabilities: {}` 表示只保留会话/技能工具；显式对象中未列出的能力为关闭。禁止的能力不加载实现、不注册工具、不注入专属提示词，也不扫描该能力的技能目录。chat 普通会话不要求 Python，计算时才要求基础 Python 包。
+
+```json
+{
+  "rootDir": "/absolute/path/to/sgz-agent",
+  "capabilities": {"analysis": true, "knowledge": true, "client": false},
+  "analysis": {"pythonPath": "/path/to/base-env/bin/python"},
+  "knowledge": {"pythonPath": "/path/to/knowledge-env/bin/python", "directory": ".state/knowledge"}
+}
+```
+
+解释器优先使用模块自己的 `pythonPath`，其次旧全局 `pythonPath`，最后为根 `.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`。`client.configPath`、`client.autoStart` 分别优先于旧全局字段。关闭 client 时 autoStart 不产生作用。客户端启动失败不影响技能、计算和知识；知识失败不阻断客户端。
+
+显式能力配置启动时，插件也会在当前 DSH 运行实例内收窄 `sgz-filesystem` 的原生扫描目录，防止遗留 provider 配置暴露禁用技能；该修正不改写宿主配置文件。修改能力时仍建议同时更新插件和原生技能 provider。请从同一模板生成配置，避免只改工具开关而留下旧扫描目录：
+
+```sh
+npm --prefix agent/plugin run build
+node agent/scripts/Render-Profile.mjs --profile chat --root /absolute/path/to/sgz-agent --output /tmp/sgz-chat.patch.yml
+# --no-auto-start 可使 local 的客户端也按需启动
+```
+
+Windows 在维护窗口完整退出 DSH 后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File agent/scripts/Install-DshPlugin.ps1 -Profile chat
+powershell -ExecutionPolicy Bypass -File agent/scripts/Start-Agent.ps1
+# local 按需启动客户端：安装时加 -NoAutoStart
+```
+
+安装器按 profile 生成独立 tarball，备份 DSH 配置与包元数据，并记录 `.state/installed-agent-profile.json`。启动器默认使用安装记录；不会把另一个已安装 profile 偷换成命令行选项。旧安装无记录时按 local 处理。能力切换下次启动生效，不热切换，不终止当前 worker。
+
+回退时在 DSH 退出后恢复备份中的 profile 配置/包元数据并重新安装原插件包；恢复旧的 `installed-agent-profile.json`（原来没有时移除新标记）。保留 `.state` 数据、旧 request_id 和 unknown 状态，不删库或重建索引。现有 `backend/config/game.local.json` 优先，新模板位于 `backend/config/client/game.example.json`。
+
+## 隔离验证
+
+```sh
+npm --prefix agent/plugin run build
+npm --prefix agent/plugin test
+node --expose-internals agent/scripts/Test-Profiles.mjs --runtime /path/to/dsh/package.json
+# 加 --python /absolute/path/to/python 可验证实际计算和临时知识库 worker
+```
+
+该脚本只在临时目录启动工具、技能与系统提示服务，覆盖三种 profile；不加载模型提供商、不访问游戏或生产数据库。无 `--python` 时验证缺少 Python 仍可启动；指定 Python 时须已安装后端基础包与 knowledge 依赖。`--runtime` 指向固定 DSH 0.2.1-rc.3 runtime 的 package.json。Windows 客户端与 PowerShell 安装流程仍需本机验收。
+
+## 客户端功能与历史验证
+
+
 Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python 执行器和本地 PaddleOCR。已实机跑通手机扫码后的身份核验、游戏内坐标查询、地块详情读取、坐标二次确认与导出。3×3 区域共 9 个点全部完成，暂停恢复后没有重复记录。
 
-手机扫码和授权由用户完成。已登录核验路径已实测；二维码失效后的自动刷新仍需校准。当前无派兵、战斗、侦察、交易或付费操作实现。
+手机扫码和授权由用户完成。已登录核验路径已实测；二维码失效后的自动刷新仍需校准。派兵和补兵只在对应客户端能力核验通过时可用，具体以工具返回的 capabilities 为准。
 
 接口快速扫描已接通：0.5.0 复用已登录客户端的地图数据和服务器个人贼寇查询，不需要跳地图。实测 2500 格约 1.53 秒。资源占领状态未知，贼寇范围限当前角色个人列表。详见 [接口格式与核对记录](../docs/protocol-investigation.md)。
 
@@ -49,13 +106,13 @@ Windows 客户端自动化原型，使用 DeepSeek Harness 工具插件、Python
 
 `sgz_query_roster` 支持 city_id、city_kind（main/sub）、status，默认 300 秒后标记过期。coordinate 为当前位置，destination 为行军目的地；未知位置为 null。请同时检查 observed、complete、position_complete、stale、refresh_required 与 refresh_error。缺少主城/分城/队伍页面校准时，`sgz_refresh_roster` 会明确报错，不能把尚未采集解释为“没有队伍”。
 
-skill 系统接入 DSH 原生目录发现、摘要、按需加载和热更新。已添加 [巨戟士讨伐 skill](skills/sgz-giant-halberdier/SKILL.md)：只打指定队伍和巨戟士；战前核验预计到达士气，交战及战平续战期间不检索、不检查兵力；整次交战结束后低于 20000 才回城或可用营帐补兵，达标时自动处理已授权的“坚持出征”。包括回城/调动区别、伤兵恢复和征兵核验，以及带日期的机制来源。它是 agent 的执行流程，现有 sgz 工具还没有派兵、撤退、补兵动作接口；有可用且获准的宿主 UI 控制能力时才能执行。详见 [skill 系统](../docs/skill-system.md)。
+skill 系统接入 DSH 原生目录发现、摘要、按需加载和热更新。已添加 [巨戟士讨伐 skill](skills/client/sgz-giant-halberdier/SKILL.md)：只打指定队伍和巨戟士；战前核验预计到达士气，交战及战平续战期间不检索、不检查兵力；整次交战结束后低于 20000 才回城或可用营帐补兵，达标时自动处理已授权的“坚持出征”。包括回城/调动区别、伤兵恢复和征兵核验，以及带日期的机制来源。它是 agent 的执行流程；客户端动作必须使用当前已注册、经能力核验的工具。详见 [skill 系统](../docs/skill-system.md)。
 
-新增 [多队持续打野 skill](skills/sgz-multi-army-hunt/SKILL.md) 与持久化调度器：默认选主城/分城已编成普通队伍，排除空槽和特殊队伍；每队实际位置周围 70 格圆形候选范围，每 120 秒检查阶段。战中不查该队兵力、不为该队检索、不撤回；整次结算后才检查。优先回当前调动驻点，没有则回所属城；营帐低兵普通征兵，主城/分城补到当前上限。比较直达与“调动＋驻点准备＋最终讨伐路程”的实际预览时间，选择士气、权限和容量均符合的更快路线。任务、全局目标预占和发送前命令日志保存在 `.state/hunts.sqlite3`；结果未知不重发。
+新增 [多队持续打野 skill](skills/client/sgz-multi-army-hunt/SKILL.md) 与持久化调度器：默认选主城/分城已编成普通队伍，排除空槽和特殊队伍；每队实际位置周围 70 格圆形候选范围，每 120 秒检查阶段。战中不查该队兵力、不为该队检索、不撤回；整次结算后才检查。优先回当前调动驻点，没有则回所属城；营帐低兵普通征兵，主城/分城补到当前上限。比较直达与“调动＋驻点准备＋最终讨伐路程”的实际预览时间，选择士气、权限和容量均符合的更快路线。任务、全局目标预占和发送前命令日志保存在 `.state/hunts.sqlite3`；结果未知不重发。
 
 **当前多队实机自动打野尚未启用。** 2026-10-25 只读接口校准出现客户端崩溃，隔离记录为 `.state/hunt-client-quarantine.json`。随后获准的一次受控测试成功读取状态，但路线预览解码校验失败并立即退出；客户端未再次崩溃，仍不足以解除隔离。调度、回补与并发规则通过离线测试；完整 70 格实时覆盖、整次交战结束判定、调动路线士气/驻点资格及派兵补兵执行还需实机验收。所有生产接口注入均受隔离约束，`sgz_hunt_status` 会明确返回 `available=false`；不能把工具已注册理解为可派兵。详见 [客户端接口证据与缺口](../docs/hunt-client-contract.md)。
 
-[通用战斗评估 skill](skills/sgz-combat-assessment/SKILL.md) 独立于任何武将组合，通过 `sgz_assess_combat` 输出士气伤害系数、逐将兵池及社区近似输出指标，并核对同规则/配置/完整守军战报。兵力近似公式不会决定胜负；完整证据不足会明确返回 `insufficient_evidence`，胜率保持未知。当前没有完整战报自动采集和战斗模拟器。公式、微信玩家来源、输入契约和适用边界见 [评估说明](skills/sgz-combat-assessment/references/model.md)。
+[通用战斗评估 skill](skills/conversation/sgz-combat-assessment/SKILL.md) 独立于任何武将组合，通过 `sgz_assess_combat` 输出士气伤害系数、逐将兵池及社区近似输出指标，并核对同规则/配置/完整守军战报。兵力近似公式不会决定胜负；完整证据不足会明确返回 `insufficient_evidence`，胜率保持未知。当前没有完整战报自动采集和战斗模拟器。公式、微信玩家来源、输入契约和适用边界见 [评估说明](skills/conversation/sgz-combat-assessment/references/model.md)。
 
 巨戟士属于普通地图贼寇，和个人蛮族、木牛流马分开。已核对的等级、名称别名及配置编号见 [贼寇分类](../docs/bandit-classification.md)。当前通用扫描范围仍以 `sgz_protocol_status` 为准。
 
@@ -69,7 +126,7 @@ skill 系统接入 DSH 原生目录发现、摘要、按需加载和热更新。
 
 首批数据来自官网**基础武将库、战法库**，机制为带出处的简短事实摘要。不是全赛季完整数据；官网未注明的数值等级、更新时间保持未知，不可直接当作满级、最新版。机制文章为 2019 年官方社区攻略，标为历史来源。采集日期不等于游戏数据更新日期。详情和实测见 [知识库报告](../docs/knowledge-report.md)。
 
-调动/营帐/征兵新增 11 条持久化知识：8 条带出处的机制与 3 条用户策略，来源包为 `backend/config/knowledge-logistics.json`。已完成实际导入和向量索引，重新打开知识库后 11 条均可检索，重复导入不产生重复项。历史攻略与 2025/2026 年更新分别注明适用边界；[调动补兵知识报告](../docs/knowledge-logistics-report.md) 记录来源和维护方式。
+调动/营帐/征兵新增 11 条持久化知识：8 条带出处的机制与 3 条用户策略，来源包为 `backend/config/knowledge/knowledge-logistics.json`。已完成实际导入和向量索引，重新打开知识库后 11 条均可检索，重复导入不产生重复项。历史攻略与 2025/2026 年更新分别注明适用边界；[调动补兵知识报告](../docs/knowledge-logistics-report.md) 记录来源和维护方式。
 
 ```powershell
 # 已安装 knowledge 依赖后，可独立于游戏使用
@@ -115,7 +172,7 @@ powershell -ExecutionPolicy Bypass -File agent\scripts\Start-Agent.ps1 -Mode doc
 powershell -ExecutionPolicy Bypass -File agent\scripts\Test-Agent.ps1 -DshExecutable 'D:\deepseek\DeepSeek Harness.exe' -Installed
 ```
 
-第一条启动 DSH，由插件自动启动唯一 Python worker，并检查进程；第二条检查窗口及快捷键；第三条运行 Python/Node 测试、构建插件，并从用户安装目录加载插件进行独立检查，不调用模型 API。运行独立集成检查前先退出 DSH，避免与正在运行的 worker 争用数据库。手动截图可用 `agent\scripts\Start-Agent.ps1 -Mode capture -Activate`，输出 `.state/capture.png`。认证页截图请用完删除；后台不会把它归档为地图证据。
+第一条启动 DSH，local 默认由插件自动启动唯一客户端 worker（计算和知识各自懒启动），并检查进程；第二条检查窗口及快捷键；第三条运行 Python/Node 测试、构建插件，并从用户安装目录加载插件进行独立检查，不调用模型 API。运行独立集成检查前先退出 DSH，避免与正在运行的 worker 争用数据库。手动截图可用 `agent\scripts\Start-Agent.ps1 -Mode capture -Activate`，输出 `.state/capture.png`。认证页截图请用完删除；后台不会把它归档为地图证据。
 
 `sgz_prepare_login` 托管启动或复用游戏进程，恢复最小化窗口、调整为已校准的 1264×711 客户区并取得前台，再核验角色身份。地图扫描、队伍刷新也会在任务开始时恢复窗口。独立检查窗口可运行 `agent\scripts\Start-Agent.ps1 -Mode prepare-client`。操作后指针会停靠标题栏，避免游戏绘制的鼠标遮住 OCR 文字。
 
@@ -128,7 +185,7 @@ powershell -ExecutionPolicy Bypass -File agent\scripts\Test-Agent.ps1 -DshExecut
 需要 Windows x64、Python 3.11、Node 22 或更新版本，依赖已锁定：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File backend/scripts/Sync-Backend.ps1
+powershell -ExecutionPolicy Bypass -File backend/scripts/Sync-Backend.ps1 -Profile local -Dev
 Push-Location agent/plugin
 npm ci
 npm run build
@@ -138,6 +195,6 @@ Pop-Location
 
 本机 uv 在 `.tools\uv\uv.exe`。首次 OCR 会下载 PP-OCRv5 mobile 模型，之后本地推理。不要额外安装其他 OpenCV 发行包。
 
-新机器可复制 `backend/config/game.example.json`，但模板不含账号和图像校准，默认不会执行地图动作。安装插件前先完全退出 DSH，再运行 `agent\scripts\Install-DshPlugin.ps1`；它调用 DSH 自带管理器并备份包管理元数据。
+新机器可复制 `backend/config/client/game.example.json`，但模板不含账号和图像校准，默认不会执行地图动作。安装插件前先完全退出 DSH，再运行 `agent\scripts\Install-DshPlugin.ps1`；它调用 DSH 自带管理器并备份包管理元数据。
 
 区域检索、队伍和托管功能实测见 [验证报告](../docs/map-search-report.md)。早期坐标导航记录见 [P0 报告](../docs/p0-report.md)。

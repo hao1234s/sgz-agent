@@ -8,7 +8,7 @@ import threading
 from types import SimpleNamespace
 
 import frida
-from sgz_agent.native_session import close_native_session
+from sgz_agent.client.native_session import close_native_session
 
 
 CHILD = r'''
@@ -31,7 +31,7 @@ def probe(flush,traps='default',chain=False):
         addresses=json.loads(child.stdout.readline())
         assert addresses['outer']!=addresses['inner']
         session=frida.get_local_device().attach(child.pid)
-        helper=(Path(__file__).parents[1]/'src/sgz_agent/native_lifecycle.js').read_text('utf-8')
+        helper=(Path(__file__).parents[1]/'src/sgz_agent/client/native_lifecycle.js').read_text('utf-8')
         program='const OPTIONS='+json.dumps({**addresses,'flush':flush,'traps':traps,'chain':chain})+';\n'+helper+r'''
 const life=createNativeLifecycle({attach:(p,h)=>Interceptor.attach(p,h),flush:()=>Interceptor.flush(),
  defer:fn=>setImmediate(fn),publish:v=>send(v)});

@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 import time
 
-from sgz_agent.config import load_config
-from sgz_agent.replenish import Replenisher
-from sgz_agent.replenish_client import ReplenishClient, save_validation, code_digest, incident_digest
-from sgz_agent.lease import DataLease
+from sgz_agent.client.config import default_config_path, load_config
+from sgz_agent.client.replenish import Replenisher
+from sgz_agent.client.replenish_client import ReplenishClient, save_validation, code_digest, incident_digest
+from sgz_agent.client.lease import DataLease
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
     if args.execute_army and not args.request_id:parser.error('Execution requires a durable request ID.')
     if args.grant_validation and not args.execute_army:parser.error('Validation requires a verified applied command.')
     if args.grant_read_validation and args.execute_army:parser.error('Read validation requires snapshot-only verification.')
-    config=load_config(Path(__file__).resolve().parents[1] / 'config/game.local.json')
+    config=load_config(default_config_path(Path(__file__).resolve().parents[2]))
     with closing(DataLease(config.data_dir)):
         verify(config,args)
 

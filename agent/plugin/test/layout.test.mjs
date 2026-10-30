@@ -38,7 +38,7 @@ test('relocated plugin starts backend workers and finds agent skills', async t =
   async function exercise(overrides={}) {
     const registered=new Map();
     let dispose;
-    apply({
+    await apply({
       tools:{register:tool=>registered.set(tool.name,tool)},
       skills:{snapshot:async()=>({skills:[],complete:true})},
       systemPrompt:{section:()=>{}},
@@ -53,13 +53,13 @@ test('relocated plugin starts backend workers and finds agent skills', async t =
   }
   await exercise();
   assert.deepEqual(launches[0],{
-    command:resolve(root,'.venv/Scripts/python.exe'),
-    args:['-m','sgz_agent','serve','--config',resolve(root,'backend/config/game.local.json')],
+    command:resolve(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python'),
+    args:['-m','sgz_agent.client.cli','serve','--config',resolve(root,'backend/config/client/game.local.json')],
     cwd:root,
   });
   assert.deepEqual(launches[1],{
-    command:resolve(root,'.venv/Scripts/python.exe'),
-    args:['-m','sgz_agent.knowledge_cli','serve','--directory',resolve(root,'.state/knowledge')],
+    command:resolve(root,process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python'),
+    args:['-m','sgz_agent.knowledge.cli','serve','--directory',resolve(root,'.state/knowledge')],
     cwd:root,
   });
   await exercise({pythonPath:'custom-python',configPath:'custom-config.json',autoStart:false});

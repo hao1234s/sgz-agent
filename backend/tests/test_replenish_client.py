@@ -7,7 +7,7 @@ import pytest
 
 
 def test_native_send_guard_rejects_changed_army_state_and_arbitrary_counts():
-    path=Path(__file__).parents[1]/'src/sgz_agent/replenish_client.js'
+    path=Path(__file__).parents[1]/'src/sgz_agent/client/replenish_client.js'
     assert path.exists(), 'native replenishment adapter must exist'
     code=r'''
 const fs=require('fs'),vm=require('vm');
@@ -70,7 +70,7 @@ def test_unvalidated_adapter_does_not_attach(tmp_path):
 
 
 def test_reserve_selection_uses_army_status_not_hero_imperial_flags():
-    path=Path(__file__).parents[1]/'src/sgz_agent/replenish_client.js'
+    path=Path(__file__).parents[1]/'src/sgz_agent/client/replenish_client.js'
     code=r'''
 const fs=require('fs'),vm=require('vm'),c={};vm.createContext(c);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8').split('// Native adapter')[0],c);
@@ -94,7 +94,7 @@ def load_verifier():
 
 
 def test_native_ack_policy_accepts_missing_reentrant_observation_but_requires_both_acks():
-    path=Path(__file__).parents[1]/'src/sgz_agent/replenish_client.js'
+    path=Path(__file__).parents[1]/'src/sgz_agent/client/replenish_client.js'
     code=r'''
 const fs=require('fs'),vm=require('vm'),c={};vm.createContext(c);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8').split('// Native adapter')[0],c);
