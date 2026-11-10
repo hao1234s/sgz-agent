@@ -1,11 +1,5 @@
 import { useEffect, useRef, type FormEvent } from "react";
-import { ArrowUp, ChevronDown, Square, Sparkles } from "lucide-react";
-import type { Mode } from "../lib/types";
-export const modeNames: Record<Mode, string> = {
-  dsh: "DSH Agent",
-  sse: "自定义 Agent",
-  demo: "演示 Agent",
-};
+import { ArrowUp, Square, Sparkles } from "lucide-react";
 interface Props {
   value: string;
   setValue: (value: string) => void;
@@ -13,8 +7,8 @@ interface Props {
   onStop: () => void;
   busy: boolean;
   stopping: boolean;
-  mode: Mode;
-  onSettings: () => void;
+  disabled?: boolean;
+  onAccount: () => void;
 }
 export function Composer({
   value,
@@ -23,8 +17,8 @@ export function Composer({
   onStop,
   busy,
   stopping,
-  mode,
-  onSettings,
+  disabled,
+  onAccount,
 }: Props) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -36,7 +30,7 @@ export function Composer({
   }, [value]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!busy && value.trim()) onSend();
+    if (!busy && !disabled && value.trim()) onSend();
   };
   return (
     <form className="composer" onSubmit={submit}>
@@ -44,35 +38,30 @@ export function Composer({
         ref={textarea}
         rows={2}
         aria-label="消息"
+        maxLength={32000}
         placeholder="向 Agent 提问，或者描述你想做的事…"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
           if (
-            e.key === "Enter" &&
-            !e.shiftKey &&
-            !e.nativeEvent.isComposing &&
-            e.keyCode !== 229
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !event.nativeEvent.isComposing &&
+            event.keyCode !== 229
           ) {
-            e.preventDefault();
-            if (!busy && value.trim()) onSend();
+            event.preventDefault();
+            if (!busy && !disabled && value.trim()) onSend();
           }
         }}
       />
       <div className="composer-toolbar">
-        <button
-          className="agent-select"
-          type="button"
-          onClick={onSettings}
-          disabled={busy}
-        >
+        <button className="agent-select" type="button" onClick={onAccount}>
           <Sparkles size={15} />
-          {modeNames[mode]}
-          <ChevronDown size={13} />
+          SGZ Agent
         </button>
         <div className="composer-right">
           <span className="keyboard-hint">
-            {busy ? "正在生成回复" : "Enter 发送"}
+            {stopping ? "正在停止…" : busy ? "正在生成回复" : "Enter 发送"}
           </span>
           {busy ? (
             <button
@@ -88,7 +77,7 @@ export function Composer({
             <button
               className="send-button"
               type="submit"
-              disabled={!value.trim()}
+              disabled={disabled || !value.trim()}
               aria-label="发送消息"
             >
               <ArrowUp size={20} />

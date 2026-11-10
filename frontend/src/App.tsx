@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { sessionEvents } from "./lib/session-events";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -6,7 +8,6 @@ import {
   BookOpen,
   Check,
   ChevronRight,
-  CircleHelp,
   Compass,
   FileText,
   MessageSquare,
@@ -20,240 +21,475 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { Composer, modeNames } from "./components/Composer";
+import { Composer } from "./components/Composer";
 import { MessageView } from "./components/MessageView";
-import { SettingsDialog } from "./components/SettingsDialog";
-import { loadConversations, loadSettings, saveLocal } from "./lib/storage";
-import { streamSSE } from "./lib/stream";
-import { streamDsh } from "./lib/dsh";
-import { streamDemo } from "./lib/demo";
-import type { Conversation, Message, Settings, StreamEvent } from "./lib/types";
+import { Login } from "./components/Login";
+import { AccountPanel } from "./components/AccountPanel";
+import {
+  api,
+  ApiError,
+  errorText,
+  type ConversationSummary,
+  type ServerConversation,
+  type ServerStatus,
+  type User,
+} from "./lib/api";
 
 const prompts = [
   {
     icon: Compass,
-    title: "了解当前状态",
-    detail: "让 Agent 帮你梳理进展",
-    text: "请只读查看当前 Agent 的能力与运行状态，说明有哪些可用工具，不执行游戏操作。",
+    title: "了解 Agent 能力",
+    detail: "看看能帮你做些什么",
+    text: "请介绍你能提供的三国志战略版分析与计算能力。",
   },
   {
     icon: BookOpen,
-    title: "探索一个问题",
-    detail: "从一个好问题开始",
-    text: "请介绍这个项目的结构，以及前端与 Agent 的通信方式。",
+    title: "探索阵容搭配",
+    detail: "找到适合你的组合",
+    text: "我想了解如何搭配一套阵容，请先问我已有的武将和战法。",
   },
   {
     icon: PenLine,
-    title: "把想法变成计划",
+    title: "制定战斗计划",
     detail: "拆解目标，找到下一步",
-    text: "我有一个想法，想请你帮我梳理成一个可以执行的计划。请先问我最关键的问题。",
+    text: "我想制定一份阵容培养计划，请先了解我的目标和现有资源。",
   },
   {
     icon: FileText,
-    title: "整理与总结",
-    detail: "让复杂信息清晰起来",
-    text: "帮我整理一份项目说明，包含用途、主要能力、启动方式和当前限制。",
+    title: "分析战法效果",
+    detail: "把复杂机制聊清楚",
+    text: "请帮我了解战法分析与伤害计算需要提供哪些信息。",
   },
 ];
-const connectionKey = (settings: Settings) =>
-  JSON.stringify([
-    settings.mode,
-    settings.mode === "dsh"
-      ? settings.cwd
-      : settings.mode === "sse"
-        ? [settings.endpoint, settings.model]
-        : null,
-  ]);
 
 export default function App() {
-  const [settings, setSettings] = useState(loadSettings);
-  const [conversations, setConversations] = useState(loadConversations);
+  const [user, setUser] = useState<User | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [notice, setNotice] = useState("");
+  const identity = useRef<AbortController | null>(null);
+  const version = useRef(0);
+  const events = useRef<ReturnType<typeof sessionEvents> | null>(null);
+  function invalidate(clearWorkspace = true) {
+    version.current++;
+    identity.current?.abort();
+    if (clearWorkspace) setUser(null);
+    setChecking(true);
+    setNotice("");
+  }
+  async function revalidate(preserveWorkspace = false) {
+    invalidate(!preserveWorkspace);
+    const current = version.current;
+    const controller = new AbortController();
+    identity.current = controller;
+    const valid = () => !controller.signal.aborted && current === version.current;
+    try {
+      const result = await api.me(controller.signal);
+      if (valid()) {
+        setUser(result.user);
+        setChecking(false);
+      }
+    } catch (error) {
+      if (!valid()) return;
+      if (error instanceof ApiError && error.status === 401) {
+        setUser(null);
+        setChecking(false);
+      } else {
+        // Keep retained content concealed until the cookie identity is confirmed.
+        setNotice(errorText(error));
+      }
+    }
+  }
+  useEffect(() => {
+    const bus = sessionEvents(phase => {
+      // Commit the unmount (including abort cleanup) before starting another identity request.
+      flushSync(() => invalidate());
+      if (phase === "changed") void revalidate();
+    });
+    events.current = bus;
+    const focus = () => {
+      // Conceal synchronously, but keep the existing workspace lifetime during checks.
+      flushSync(() => invalidate(false));
+      void revalidate(true);
+    };
+    const visible = () => { if (document.visibilityState === "visible") focus(); };
+    window.addEventListener("focus", focus);
+    document.addEventListener("visibilitychange", visible);
+    void revalidate();
+    return () => {
+      version.current++;
+      identity.current?.abort();
+      bus.close();
+      window.removeEventListener("focus", focus);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, []);
+  function expired() {
+    version.current++;
+    identity.current?.abort();
+    setUser(null);
+    setChecking(false);
+    setNotice("登录已过期，请重新登录。");
+    events.current?.publish("changed");
+  }
+  async function logout() {
+    invalidate();
+    setChecking(false);
+    setLoggingOut(true);
+    events.current?.publish("changing");
+    try {
+      await api.logout();
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 401)) setNotice(`退出请求失败：${errorText(error)}`);
+    } finally {
+      setLoggingOut(false);
+      events.current?.publish("changed");
+    }
+  }
+  const identityCheck = (
+    <main className="login-page" role="status">
+      {notice ? (
+        <div>
+          <p role="alert">无法确认登录状态：{notice}</p>
+          <button onClick={() => void revalidate(true)}>重新检查</button>
+        </div>
+      ) : "正在恢复登录…"}
+    </main>
+  );
+  if (checking && !user) return identityCheck;
+  if (!user)
+    return (
+      <Login
+        blocked={loggingOut}
+        notice={notice}
+        onLogin={(user) => {
+          version.current++;
+          identity.current?.abort();
+          setNotice("");
+          setUser(user);
+          events.current?.publish("changed");
+        }}
+      />
+    );
+  return (
+    <>
+      {checking && identityCheck}
+      <div hidden={checking} inert={checking}>
+        <Workspace
+          key={user.id}
+          user={user}
+          suspended={checking}
+          onLogout={() => void logout()}
+          onExpired={expired}
+        />
+      </div>
+    </>
+  );
+}
+
+function Workspace({
+  user,
+  suspended,
+  onLogout,
+  onExpired,
+}: {
+  user: User;
+  suspended: boolean;
+  onLogout: () => void;
+  onExpired: () => void;
+}) {
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [active, setActive] = useState<ServerConversation | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [token, setToken] = useState("");
   const [sidebar, setSidebar] = useState(() => window.innerWidth > 800);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<ServerStatus | null>(null);
   const [notice, setNotice] = useState("");
   const [showJump, setShowJump] = useState(false);
+  const lifetime = useRef<AbortController | null>(null);
   const controller = useRef<AbortController | null>(null);
+  const sending = useRef(false);
+  const cancelling = useRef(false);
+  const detailVersion = useRef(0);
   const scroll = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  const active = conversations.find((c) => c.id === activeId);
-  const conversationMode = active?.mode || settings.mode;
-  const latestConversations = useRef(conversations);
-  latestConversations.current = conversations;
   const messages = active?.messages || [];
   const isEmpty = !messages.length;
+  const running = busy || active?.status === "running";
+  const connected = !!status?.ready;
+  const statusLabel =
+    status === null ? "检查服务" : status.ready ? "服务已就绪" : "服务未就绪";
+  function failure(error: unknown, signal: AbortSignal) {
+    if (signal.aborted) return;
+    if (error instanceof ApiError && error.status === 401) onExpired();
+    else setNotice(errorText(error));
+  }
+  function upsert(conversation: ServerConversation) {
+    const { messages: _, ...summary } = conversation;
+    setConversations((items) => [
+      summary,
+      ...items.filter((item) => item.id !== summary.id),
+    ]);
+  }
+  async function refreshStatus() {
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted) return;
+    try {
+      const result = await api.status(signal);
+      if (!signal.aborted) setStatus(result);
+    } catch (error) {
+      failure(error, signal);
+    }
+  }
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!saveLocal("agent.conversations.v1", conversations))
-        setNotice("浏览器存储不可用，对话将仅保留在当前页面。");
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [conversations]);
+    const scope = new AbortController();
+    lifetime.current = scope;
+    void api
+      .conversations(scope.signal)
+      .then(({ conversations }) => {
+        if (!scope.signal.aborted) setConversations(conversations);
+      })
+      .catch((error) => failure(error, scope.signal));
+    void api
+      .status(scope.signal)
+      .then((status) => {
+        if (!scope.signal.aborted) setStatus(status);
+      })
+      .catch((error) => failure(error, scope.signal));
+    return () => {
+      scope.abort();
+      controller.current?.abort();
+    };
+  }, []);
   useEffect(() => {
     if (follow.current && scroll.current)
       scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [messages]);
+  // A page reloaded during a run can follow its durable messages without creating a second run.
   useEffect(() => {
-    const flush = () => {
-      saveLocal("agent.conversations.v1", latestConversations.current);
-    };
-    const handler = (e: BeforeUnloadEvent) => {
-      flush();
-      if (controller.current) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    window.addEventListener("pagehide", flush);
+    if (!active || active.status !== "running" || busy) return;
+    const scope = new AbortController();
+    const id = active.id;
+    const timer = setInterval(() => {
+      void api
+        .conversation(id, scope.signal)
+        .then(({ conversation }) => {
+          if (!scope.signal.aborted) {
+            setActive(conversation);
+            upsert(conversation);
+          }
+        })
+        .catch((error) => failure(error, scope.signal));
+    }, 1500);
     return () => {
-      window.removeEventListener("beforeunload", handler);
-      window.removeEventListener("pagehide", flush);
+      clearInterval(timer);
+      scope.abort();
     };
-  }, []);
+  }, [active?.id, active?.status, busy]);
   function newChat() {
-    if (controller.current) return;
+    if (sending.current || running || cancelling.current) return;
+    detailVersion.current++;
     setActiveId(null);
+    setActive(null);
+    setLoading(false);
     setDraft("");
+    setNotice("");
     follow.current = true;
     setShowJump(false);
     if (window.innerWidth <= 800) setSidebar(false);
   }
-  function update(
-    id: string,
-    updateFn: (conversation: Conversation) => Conversation,
-  ) {
-    setConversations((current) =>
-      current.map((c) => (c.id === id ? updateFn(c) : c)),
-    );
+  async function select(id: string) {
+    if (sending.current || running || cancelling.current) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted) return;
+    const version = ++detailVersion.current;
+    setActiveId(id);
+    setActive(null);
+    setLoading(true);
+    setDraft("");
+    setNotice("");
+    follow.current = true;
+    if (window.innerWidth <= 800) setSidebar(false);
+    try {
+      const { conversation } = await api.conversation(id, signal);
+      if (!signal.aborted && version === detailVersion.current)
+        setActive(conversation);
+    } catch (error) {
+      if (version === detailVersion.current) failure(error, signal);
+    } finally {
+      if (!signal.aborted && version === detailVersion.current)
+        setLoading(false);
+    }
+  }
+  async function deleteConversation(id: string) {
+    if (sending.current || running || cancelling.current) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted) return;
+    try {
+      await api.remove(id, signal);
+      if (!signal.aborted) {
+        setConversations((items) => items.filter((item) => item.id !== id));
+        if (activeId === id) newChat();
+      }
+    } catch (error) {
+      failure(error, signal);
+    }
   }
   async function send() {
     const text = draft.trim();
-    if (!text || controller.current) return;
+    const scope = lifetime.current;
     if (
-      active &&
-      (active.mode !== settings.mode ||
-        active.connectionKey !== connectionKey(settings))
-    ) {
-      setNotice("当前连接配置与此会话不同，请新建会话后继续。");
+      !scope ||
+      scope.signal.aborted ||
+      !text ||
+      sending.current ||
+      running ||
+      cancelling.current ||
+      loading ||
+      !connected
+    )
       return;
-    }
     const abort = new AbortController();
     controller.current = abort;
+    sending.current = true;
+    const onAbort = () => abort.abort();
+    scope.signal.addEventListener("abort", onAbort, { once: true });
     setBusy(true);
     setStopping(false);
-    follow.current = true;
     setNotice("");
-    const user: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: text,
-    };
-    const assistant: Message = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content: "",
-      status: "streaming",
-    };
-    const conversation: Conversation = active || {
-      id: crypto.randomUUID(),
-      title: text.slice(0, 28),
-      updatedAt: Date.now(),
-      messages: [],
-      mode: settings.mode,
-      connectionKey: connectionKey(settings),
-    };
-    const history = [...conversation.messages, user];
-    const next = {
-      ...conversation,
-      updatedAt: Date.now(),
-      messages: [...history, assistant],
-    };
-    if (active) update(active.id, () => next);
-    else setConversations((current) => [next, ...current]);
-    setActiveId(next.id);
-    setDraft("");
-    const patchMessage = (fn: (message: Message) => Message) =>
-      update(next.id, (c) => ({
-        ...c,
-        messages: c.messages.map((m) => (m.id === assistant.id ? fn(m) : m)),
-      }));
-    let hasText = false;
-    const emit = (event: StreamEvent) => {
-      if (event.type === "session") {
-        update(next.id, (c) => ({ ...c, remoteId: event.id }));
-        return;
-      }
-      if (event.type === "delta" || event.type === "replace") {
-        hasText ||= !!event.text;
-        patchMessage((m) => ({
-          ...m,
-          content: event.type === "delta" ? m.content + event.text : event.text,
-        }));
-      }
-      if (event.type === "status")
-        patchMessage((m) => ({ ...m, activity: event.text }));
-    };
+    follow.current = true;
+    let target = active;
+    let assistantId = "";
     try {
-      if (settings.mode === "demo") await streamDemo(text, abort.signal, emit);
-      else if (settings.mode === "dsh")
-        await streamDsh(
-          conversation.remoteId,
-          settings.cwd,
-          text,
-          abort.signal,
-          emit,
-        );
-      else
-        await streamSSE(settings, history, next.id, token, abort.signal, emit);
-      if (!hasText)
-        throw new Error("Agent 本轮没有返回文本，请检查后台会话和模型状态。");
-      patchMessage((m) => ({ ...m, status: "complete", activity: "" }));
-      if (settings.mode !== "demo") setConnected(true);
+      if (!target) {
+        target = (await api.create(abort.signal)).conversation;
+        if (abort.signal.aborted) return;
+        setActive(target);
+        setActiveId(target.id);
+        upsert(target);
+      }
+      const conversation = target;
+      setDraft("");
+      const final = await api.send(
+        conversation.id,
+        text,
+        crypto.randomUUID(),
+        abort.signal,
+        (event) => {
+          if (abort.signal.aborted || scope.signal.aborted) return;
+          if (event.type === "run") {
+            assistantId = event.assistantMessage.id;
+            const next = {
+              ...conversation,
+              title: conversation.messages.length
+                ? conversation.title
+                : text.slice(0, 60),
+              status: "running",
+              updatedAt: Date.now(),
+              messages: [
+                ...conversation.messages,
+                event.userMessage,
+                event.assistantMessage,
+              ],
+            };
+            setActive(next);
+            upsert(next);
+          } else if (event.type === "done") {
+            setActive(event.conversation);
+            upsert(event.conversation);
+          } else if (
+            event.type === "delta" ||
+            event.type === "replace" ||
+            event.type === "status"
+          ) {
+            setActive((current) =>
+              current?.id !== conversation.id
+                ? current
+                : {
+                    ...current,
+                    messages: current.messages.map((message) =>
+                      message.id !== assistantId
+                        ? message
+                        : event.type === "status"
+                          ? { ...message, activity: event.text }
+                          : {
+                              ...message,
+                              content:
+                                event.type === "delta"
+                                  ? message.content + event.text
+                                  : event.text,
+                            },
+                    ),
+                  },
+            );
+          }
+        },
+      );
+      if (!scope.signal.aborted && !abort.signal.aborted) {
+        setActive(final);
+        upsert(final);
+      }
     } catch (error) {
-      const stopped = error instanceof Error && error.name === "AbortError";
-      patchMessage((m) => ({
-        ...m,
-        status: stopped ? "stopped" : "error",
-        activity: "",
-        ...(!stopped
-          ? {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "连接出错，请检查后端设置。",
-            }
-          : {}),
-      }));
-      if (!stopped) setConnected(false);
+      if (scope.signal.aborted) return;
+      if (!abort.signal.aborted) {
+        failure(error, scope.signal);
+        if (!assistantId) setDraft(text);
+      }
+      if (target) {
+        try {
+          const result = await api.conversation(target.id, scope.signal);
+          if (!scope.signal.aborted) {
+            setActive(result.conversation);
+            upsert(result.conversation);
+          }
+        } catch (error) {
+          failure(error, scope.signal);
+        }
+      }
     } finally {
-      controller.current = null;
-      setBusy(false);
-      setStopping(false);
+      scope.signal.removeEventListener("abort", onAbort);
+      if (!scope.signal.aborted) {
+        controller.current = null;
+        sending.current = false;
+        setBusy(false);
+      }
     }
   }
-  function saveSettings(value: Settings, secret: string, ready: boolean) {
-    setSettings(value);
-    setToken(secret);
-    saveLocal("agent.settings.v1", value);
-    setConnected(ready);
-    setShowSettings(false);
-    newChat();
+  async function stop() {
+    const scope = lifetime.current;
+    if (!active || !scope || scope.signal.aborted || cancelling.current) return;
+    cancelling.current = true;
+    setStopping(true);
+    const stream = controller.current;
+    const id = active.id;
+    try {
+      await api.cancel(id, scope.signal);
+      if (scope.signal.aborted) return;
+      stream?.abort();
+      const { conversation } = await api.conversation(id, scope.signal);
+      if (!scope.signal.aborted) {
+        setActive(conversation);
+        upsert(conversation);
+        setNotice("已停止生成，收到的内容已保存。");
+      }
+    } catch (error) {
+      if (!scope.signal.aborted) {
+        stream?.abort();
+        failure(error, scope.signal);
+      }
+    } finally {
+      if (!scope.signal.aborted) {
+        cancelling.current = false;
+        setStopping(false);
+      }
+    }
   }
-  function deleteConversation(id: string) {
-    if (busy) return;
-    setConversations((current) => current.filter((c) => c.id !== id));
-    if (activeId === id) newChat();
-  }
-  const statusLabel =
-    settings.mode === "demo" ? "演示模式" : connected ? "已连接" : "待连接";
   const filtered = [...conversations]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((c) => c.title.toLowerCase().includes(query.toLowerCase()));
@@ -275,7 +511,7 @@ export default function App() {
             onClick={newChat}
             className="brand"
             aria-label="Agent 首页"
-            disabled={busy}
+            disabled={!!running || stopping}
           >
             <Asterisk size={29} strokeWidth={2.1} />
             <span>
@@ -290,7 +526,11 @@ export default function App() {
             <PanelLeftClose size={18} />
           </button>
         </div>
-        <button className="new-chat" onClick={newChat} disabled={busy}>
+        <button
+          className="new-chat"
+          onClick={newChat}
+          disabled={!!running || stopping}
+        >
           <Plus size={18} />
           <span>开启新会话</span>
           <span className="new-chat-symbol">↗</span>
@@ -339,20 +579,15 @@ export default function App() {
             >
               <button
                 className="conversation-link"
-                disabled={busy}
-                onClick={() => {
-                  setActiveId(c.id);
-                  setDraft("");
-                  follow.current = true;
-                  if (window.innerWidth <= 800) setSidebar(false);
-                }}
+                disabled={!!running || stopping}
+                onClick={() => void select(c.id)}
               >
                 <MessageSquare size={15} />
                 <span>{c.title}</span>
               </button>
               <button
                 className="delete-conversation icon-button"
-                disabled={busy}
+                disabled={!!running || stopping}
                 aria-label={`删除会话：${c.title}`}
                 onClick={() => deleteConversation(c.id)}
               >
@@ -371,18 +606,18 @@ export default function App() {
         <div className="sidebar-bottom">
           <button
             className="sidebar-settings"
-            onClick={() => setShowSettings(true)}
-            disabled={busy}
+            aria-label="账户与管理"
+            onClick={() => setShowAccount(true)}
           >
             <Settings2 size={17} />
-            <span>连接设置</span>
+            <span>账户与管理</span>
             <span className={`status-dot ${connected ? "online" : ""}`} />
           </button>
           <div className="workspace-profile">
-            <div className="avatar">A</div>
+            <div className="avatar">{user.username[0].toUpperCase()}</div>
             <div>
-              <strong>本地工作空间</strong>
-              <span>属于你的 Agent</span>
+              <strong>{user.username}</strong>
+              <span>{user.role === "admin" ? "管理员" : "个人工作空间"}</span>
             </div>
             <Check size={14} />
           </div>
@@ -407,21 +642,11 @@ export default function App() {
           <div className="topbar-actions">
             <button
               className="connection-badge"
-              onClick={() => setShowSettings(true)}
-              disabled={busy}
+              onClick={() => void refreshStatus()}
+              aria-label="刷新服务状态"
             >
-              <span
-                className={`status-dot ${connected ? "online" : settings.mode === "demo" ? "demo" : ""}`}
-              />
+              <span className={`status-dot ${connected ? "online" : ""}`} />
               {statusLabel}
-            </button>
-            <button
-              className="icon-button help-button"
-              aria-label="使用与连接帮助"
-              onClick={() => setShowSettings(true)}
-              disabled={busy}
-            >
-              <CircleHelp size={19} />
             </button>
           </div>
         </header>
@@ -437,7 +662,17 @@ export default function App() {
             </button>
           </div>
         )}
-        {isEmpty ? (
+        {status && !status.ready && (
+          <div className="notice model-notice" role="status">
+            模型服务尚未就绪，请联系管理员配置模型后使用。
+            <button onClick={() => void refreshStatus()}>重新检查</button>
+          </div>
+        )}
+        {loading ? (
+          <div className="workspace-loading" role="status">
+            正在加载会话…
+          </div>
+        ) : isEmpty ? (
           <div className="welcome-scroll">
             <section className="welcome">
               <div className="welcome-intro">
@@ -451,11 +686,11 @@ export default function App() {
                 value={draft}
                 setValue={setDraft}
                 onSend={send}
-                onStop={() => {}}
-                busy={false}
-                stopping={false}
-                mode={settings.mode}
-                onSettings={() => setShowSettings(true)}
+                onStop={() => void stop()}
+                busy={!!running}
+                stopping={stopping}
+                disabled={!connected || loading || stopping}
+                onAccount={() => setShowAccount(true)}
               />
               <div className="starter-heading">
                 <span>从这里开始</span>
@@ -503,11 +738,7 @@ export default function App() {
               }}
             >
               <div className="messages">
-                <div className="conversation-date">
-                  {conversationMode === "demo"
-                    ? "本地演示会话"
-                    : "与 Agent 的对话"}
-                </div>
+                <div className="conversation-date">与 Agent 的对话</div>
                 {messages.map((m) => (
                   <MessageView key={m.id} message={m} />
                 ))}
@@ -533,36 +764,30 @@ export default function App() {
                 value={draft}
                 setValue={setDraft}
                 onSend={send}
-                onStop={() => {
-                  setStopping(true);
-                  controller.current?.abort();
-                }}
-                busy={busy}
+                onStop={() => void stop()}
+                busy={!!running}
                 stopping={stopping}
-                mode={settings.mode}
-                onSettings={() => setShowSettings(true)}
+                disabled={!connected || loading || stopping}
+                onAccount={() => setShowAccount(true)}
               />
             </div>
           </>
         )}
         <footer className="main-footer">
-          <span>
-            {conversationMode === "demo"
-              ? "演示模式 · 内容在本地生成"
-              : "Agent 也可能出错，请核实重要信息。"}
-          </span>
+          <span>Agent 也可能出错，请核实重要信息。</span>
           <span className="footer-right">
-            {modeNames[conversationMode]}
+            SGZ Agent
             <span>·</span>Shift + Enter 换行
           </span>
         </footer>
       </main>
-      {showSettings && (
-        <SettingsDialog
-          settings={settings}
-          token={token}
-          onClose={() => setShowSettings(false)}
-          onSave={saveSettings}
+      {showAccount && (
+        <AccountPanel
+          user={user}
+          suspended={suspended}
+          onClose={() => setShowAccount(false)}
+          onLogout={onLogout}
+          onExpired={onExpired}
         />
       )}
     </div>

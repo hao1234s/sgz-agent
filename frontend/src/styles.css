@@ -1330,3 +1330,199 @@ summary {
     scroll-behavior: auto !important;
   }
 }
+
+/* Account and authentication surfaces share the conversation workspace's palette. */
+.login-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 38px 22px;
+  background: radial-gradient(ellipse at 50% 20%, #eff2e842, transparent 65%);
+}
+.login-brand {
+  position: absolute;
+  top: 38px;
+  left: 42px;
+}
+.login-card {
+  width: 100%;
+  max-width: 410px;
+  margin: 85px 0 50px;
+}
+.login-card h1 {
+  font-size: 39px;
+  font-weight: 500;
+  letter-spacing: -1.5px;
+  margin: 22px 0 12px;
+}
+.login-card > p {
+  color: #858a7c;
+  line-height: 1.8;
+}
+.login-form {
+  margin-top: 34px;
+}
+.login-form .primary-button {
+  width: 100%;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+.login-card .login-help {
+  font-size: 12px;
+  margin-top: 25px;
+  line-height: 1.9;
+}
+.login-footer {
+  color: #a0a497;
+  font-size: 11px;
+}
+.account-dialog {
+  width: 620px;
+}
+.dialog-heading p {
+  color: #858a7c;
+  font-size: 12px;
+  margin-bottom: 0;
+}
+.account-section-title {
+  font-weight: 500;
+  font-size: 14px;
+  margin-top: 26px;
+}
+.account-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  max-height: 260px;
+  overflow: auto;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.account-row:last-child {
+  border-bottom: none;
+}
+.account-row > div {
+  min-width: 0;
+  flex: 1;
+}
+.account-row strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.account-row span {
+  display: block;
+  font-size: 11px;
+  color: #858a7c;
+  margin-top: 5px;
+}
+.account-row button {
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 8px 2px;
+}
+.account-row button:hover {
+  color: #6a7c58;
+}
+.account-create select {
+  padding: 11px 12px;
+  background: white;
+  border: 1px solid #dee2d7;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+.account-create .primary-button {
+  justify-content: center;
+}
+.reset-form {
+  padding: 16px;
+  border: 1px solid #dce2d2;
+  border-radius: 10px;
+  margin-top: 15px;
+}
+.account-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  align-items: center;
+}
+.account-notice {
+  padding: 12px;
+  background: #eef2e7;
+  color: #5c6a4d;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.account-logout {
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 18px;
+  display: flex;
+  gap: 15px;
+  justify-content: space-between;
+  align-items: center;
+}
+.account-logout p {
+  font-size: 11px;
+  color: #858a7c;
+  line-height: 1.7;
+}
+.account-logout button {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.workspace-loading {
+  display: grid;
+  place-content: center;
+  flex: 1;
+  color: var(--muted);
+}
+.model-notice {
+  flex-wrap: wrap;
+  line-height: 1.8;
+}
+.model-notice button {
+  margin-left: auto;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 520px) {
+  .login-brand {
+    top: 28px;
+    left: 25px;
+  }
+  .login-card h1 {
+    font-size: 34px;
+  }
+  .account-row {
+    padding: 12px 10px;
+    gap: 8px;
+  }
+  .account-logout {
+    align-items: flex-start;
+  }
+}

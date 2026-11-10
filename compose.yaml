@@ -1,0 +1,19 @@
+services:
+  agent:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3080:3080"
+    environment:
+      SGZ_TRUSTED_PROXY_CIDRS: ${SGZ_TRUSTED_PROXY_CIDRS:-}
+      SGZ_PUBLIC_ORIGIN: ${SGZ_PUBLIC_ORIGIN:-http://127.0.0.1:3080}
+      SGZ_COOKIE_SECURE: ${SGZ_COOKIE_SECURE:-false}
+      SGZ_MODEL_API_KEY: ${SGZ_MODEL_API_KEY:-}
+      SGZ_MODEL_BASE_URL: ${SGZ_MODEL_BASE_URL:-https://api.deepseek.com/v1}
+      SGZ_MODEL_NAME: ${SGZ_MODEL_NAME:-deepseek-flash}
+      SGZ_MAX_RUNS: ${SGZ_MAX_RUNS:-4}
+    volumes:
+      - agent-data:/data
+    stop_grace_period: 30s
+volumes:
+  agent-data:

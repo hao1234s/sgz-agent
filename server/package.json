@@ -1,0 +1,33 @@
+{
+  "name": "sgz-agent-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "admin": "node --env-file-if-exists=.env --import tsx src/admin.ts",
+    "test": "npm run build && tsx --test test/*.test.ts test/agent-plugin/*.test.mjs",
+    "test:plugin": "npm run build && node --test test/agent-plugin/*.test.mjs",
+    "predev": "npm run build"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.3",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "express": "^5.3.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

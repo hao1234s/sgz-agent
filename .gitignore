@@ -11,9 +11,10 @@ __pycache__/
 *.pyc
 *.egg-info/
 node_modules/
-agent/plugin/dist/
-backend/config/*.local.json
-backend/config/**/*.local.json
+server/dist/
+server/data/
+server/workers/python/config/*.local.json
+server/workers/python/config/**/*.local.json
 .playwright-mcp/
 artifacts/
 .DS_Store
