@@ -31,8 +31,8 @@ const app = await createApplication({
       : process.env.SGZ_COOKIE_SECURE === "true",
   trustedProxyCidrs: process.env.SGZ_TRUSTED_PROXY_CIDRS?.split(",").map(value => value.trim()).filter(Boolean),
   maxConcurrentRuns: Number(process.env.SGZ_MAX_RUNS ?? 4),
-  frontendDir: existsSync(join(rootDir, "frontend/dist/index.html"))
-    ? join(rootDir, "frontend/dist")
+  frontendDir: existsSync(join(rootDir, "web/dist/index.html"))
+    ? join(rootDir, "web/dist")
     : undefined,
 });
 const port = Number(process.env.PORT ?? 3080),

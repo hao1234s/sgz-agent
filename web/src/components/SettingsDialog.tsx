@@ -157,7 +157,7 @@ export function SettingsDialog({ settings, token, onClose, onSave }: Props) {
               />
             </label>
             <p className="field-help">
-              已认证时可留空。代理地址在 <code>frontend/.env.local</code>{" "}
+              已认证时可留空。代理地址在 <code>web/.env.local</code>{" "}
               中配置；DSH 重启后请确认端口。连接 token 仅用于本次认证。
             </p>
             <details>

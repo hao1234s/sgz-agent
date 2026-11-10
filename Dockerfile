@@ -1,11 +1,11 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY server/package*.json ./server/
-COPY frontend/package*.json ./frontend/
-RUN npm --prefix server ci && npm --prefix frontend ci
+COPY web/package*.json ./web/
+RUN npm --prefix server ci && npm --prefix web ci
 COPY server ./server
-COPY frontend ./frontend
-RUN npm --prefix server run build && npm --prefix frontend run build
+COPY web ./web
+RUN npm --prefix server run build && npm --prefix web run build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
@@ -16,7 +16,7 @@ COPY server/workers/python/pyproject.toml ./server/workers/python/pyproject.toml
 COPY server/workers/python/src ./server/workers/python/src
 RUN python3 -m venv /app/.venv && /app/.venv/bin/pip install --no-cache-dir /app/server/workers/python
 COPY --from=build /app/server/dist ./server/dist
-COPY --from=build /app/frontend/dist ./frontend/dist
+COPY --from=build /app/web/dist ./web/dist
 COPY server/skills/conversation ./server/skills/conversation
 RUN mkdir -m 0700 /data && chown node:node /data
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3080 SGZ_DATA_DIR=/data SGZ_COOKIE_SECURE=true

@@ -12,7 +12,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/@DOMAIN@/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/@DOMAIN@/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    root /var/www/sgz-agent/current/frontend;
+    root /var/www/sgz-agent/current/web;
     index index.html;
     access_log /var/log/nginx/sgz-agent.access.log sgz_agent;
     client_max_body_size 128k;

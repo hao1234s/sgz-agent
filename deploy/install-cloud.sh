@@ -28,7 +28,7 @@ done
 [[ -s "$stage/dsh.env" || -s "$environment" ]] || {
     echo 'Provide SGZ_MODEL_API_KEY or an existing /etc/sgz-agent/dsh.env.' >&2; exit 1;
 }
-[[ -f "$stage/frontend/index.html" && -f "$stage/server/dist/main.js" && -f "$stage/server/dist/agent/plugin/index.js" && -f "$stage/nginx.conf" && -f "$stage/sgz-agent.service" ]] || exit 1
+[[ -f "$stage/web/index.html" && -f "$stage/server/dist/main.js" && -f "$stage/server/dist/agent/plugin/index.js" && -f "$stage/nginx.conf" && -f "$stage/sgz-agent.service" ]] || exit 1
 if [[ ! -f /etc/sgz-agent/managed-by-deploy ]]; then
     for target in "$app" "$runtime" "$nginx_config" "$unit"; do
         [[ ! -e $target && ! -L $target ]] || { echo "Refusing to replace an unmanaged path: $target" >&2; exit 1; }
@@ -84,7 +84,7 @@ fi
 install -d -o sgz-agent -g sgz-agent -m 700 /var/lib/sgz-agent /var/lib/sgz-agent/data
 install -d -m 755 "$release" /etc/sgz-agent
 install -m 644 /dev/null /etc/sgz-agent/managed-by-deploy
-for folder in frontend server; do cp -a -- "$stage/$folder" "$release/$folder"; done
+for folder in web server; do cp -a -- "$stage/$folder" "$release/$folder"; done
 find "$release" -type d -exec chmod 755 {} +
 find "$release" -type f -exec chmod 644 {} +
 npm ci --prefix "$release/server" --omit=dev --no-audit --no-fund
@@ -113,7 +113,7 @@ done
 $ready || { echo 'Application did not become ready; inspect its systemd journal.' >&2; false; }
 systemctl reload nginx
 curl --fail --silent --show-error --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/healthz"
-curl --fail --silent --show-error --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/" | cmp - "$release/frontend/index.html"
+curl --fail --silent --show-error --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/" | cmp - "$release/web/index.html"
 trap - ERR
 echo "Installed release $release_id. Previous release and backups retained."
 echo 'Create an administrator through server/dist/admin.js and verify model access using the deployment README.'

@@ -69,7 +69,7 @@ def render_files(settings):
 def create_bundle(dist, destination, settings):
     dist, destination = Path(dist), Path(destination)
     if not (dist / 'index.html').is_file():
-        raise ValueError('frontend/dist/index.html is missing; build the frontend first')
+        raise ValueError('web/dist/index.html is missing; build the web app first')
     assets = []
     for path in sorted(dist.rglob('*')):
         if path.is_symlink() or path.name == '.env' or path.name.startswith('.env.') or path.suffix in {'.pem', '.key'}:
@@ -94,7 +94,7 @@ def create_bundle(dist, destination, settings):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(destination, 'w:gz') as archive:
         for path in assets:
-            archive.add(path, arcname='frontend/' + path.relative_to(dist).as_posix(), recursive=False)
+            archive.add(path, arcname='web/' + path.relative_to(dist).as_posix(), recursive=False)
         for path in runtime_files:
             archive.add(path, arcname=path.relative_to(ROOT).as_posix(), recursive=False)
         for name, text in files.items():
@@ -192,7 +192,7 @@ def main():
     parser.add_argument('--domain', help='Public hostname; must match the server TLS certificate')
     parser.add_argument('--user', help='Explicit SSH login username')
     parser.add_argument('--apply', action='store_true', help='Connect to the server and install the prepared release')
-    parser.add_argument('--skip-build', action='store_true', help='Package verified server and frontend builds')
+    parser.add_argument('--skip-build', action='store_true', help='Package verified server and web builds')
     args = parser.parse_args()
     settings = {**read_env(args.env), **read_env(args.config)}
     if args.domain:
@@ -204,9 +204,9 @@ def main():
         npm = shutil.which('npm.cmd') or shutil.which('npm')
         if not npm:
             raise ValueError('npm is required to build the application')
-        for project in ('server', 'frontend'):
+        for project in ('server', 'web'):
             subprocess.run([npm, 'run', 'build'], cwd=ROOT / project, check=True)
-    bundle = create_bundle(ROOT / 'frontend/dist', ROOT / '.state/deploy/release.tgz', settings)
+    bundle = create_bundle(ROOT / 'web/dist', ROOT / '.state/deploy/release.tgz', settings)
     print(f'Prepared: {bundle}')
     if args.apply:
         apply_release(bundle, settings)

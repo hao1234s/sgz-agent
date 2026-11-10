@@ -3,7 +3,7 @@
 网页通过账号登录统一的服务端。服务端管理用户、权限和聊天记录，启动官方 **DSH headless 0.2.1-rc.3**，加载自己的插件与技能，按需调用 Python 计算执行器。
 
 ```text
-frontend/                    React 网页
+web/                         React 网页
 server/                      唯一后端应用与 Node 构建入口
   src/auth/                  登录、账号管理、权限与凭证
   src/conversations/         会话、消息、SSE、取消及运行生命周期
@@ -27,12 +27,12 @@ deploy/                      整套应用的 Linux 发布、Nginx、systemd
 
 ```sh
 npm --prefix server ci
-npm --prefix frontend ci
+npm --prefix web ci
 UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync --project server/workers/python --frozen
 # 已存在的模型配置不要覆盖
 [ -f server/.env ] || cp server/.env.example server/.env
 npm --prefix server run build
-npm --prefix frontend run build
+npm --prefix web run build
 npm --prefix server start
 ```
 
@@ -47,7 +47,7 @@ printf '%s\n' "$sgz_admin_password" | npm --prefix server run admin -- create ad
 unset sgz_admin_password
 ```
 
-开发时分别运行 `npm --prefix server run dev` 和 `npm --prefix frontend run dev`。Vite 默认在 http://127.0.0.1:5173/，通过 `/api` 代理至 3080；`frontend/.env.local` 的 `SGZ_BACKEND_URL` 可覆盖目标。修改服务端插件后重启 dev，它会先重新构建插件和运行时资源。
+开发时分别运行 `npm --prefix server run dev` 和 `npm --prefix web run dev`。Vite 默认在 http://127.0.0.1:5173/，通过 `/api` 代理至 3080；`web/.env.local` 的 `SGZ_BACKEND_URL` 可覆盖目标。修改服务端插件后重启 dev，它会先重新构建插件和运行时资源。
 
 ## 数据与部署
 
@@ -69,7 +69,7 @@ Compose 默认只绑定主机 loopback 3080。公开到 HTTPS 域名时，设置
 ```sh
 # 自动构建服务端及插件，然后运行 HTTP/隔离/DSH/插件测试
 npm --prefix server test
-npm --prefix frontend test
+npm --prefix web test
 .venv/bin/python -m unittest discover -s deploy/tests -v
 # Python 离线基础测试需要 dev 依赖
 UV_PROJECT_ENVIRONMENT="$PWD/.venv" uv sync --project server/workers/python --frozen --extra dev

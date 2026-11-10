@@ -73,7 +73,7 @@ class DeploymentTests(unittest.TestCase):
             archive = deploy.create_bundle(dist, root / 'release.tgz', {'SITE_DOMAIN': 'agent.example.com', 'SSH_PASSWORD': 'do-not-ship'})
             with tarfile.open(archive) as bundle:
                 names = set(bundle.getnames())
-                self.assertIn('frontend/index.html', names)
+                self.assertIn('web/index.html', names)
                 self.assertIn('nginx.conf', names)
                 self.assertIn('sgz-agent.service', names)
                 self.assertIn('install-cloud.sh', names)

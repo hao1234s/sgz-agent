@@ -6,7 +6,7 @@
 
 ## 准备和发布
 
-本地先安装 `server`、`frontend` 的 npm 依赖。复制本目录 `.env.example` 到 `.env.local`，填写域名、SSH 用户和模型配置。SSH 凭据也可放根 `.env`；模型 Key 单独上传，不进入 release.tgz。
+本地先安装 `server`、`web` 的 npm 依赖。复制本目录 `.env.example` 到 `.env.local`，填写域名、SSH 用户和模型配置。SSH 凭据也可放根 `.env`；模型 Key 单独上传，不进入 release.tgz。
 
 ```sh
 # 构建并生成本地发布包；不会连接服务器

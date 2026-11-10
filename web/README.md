@@ -5,7 +5,7 @@ React + TypeScript + Vite 前端，提供用户名/密码登录、服务器会�
 需要 Node.js 22.19+。先按项目根目录说明启动 `server/`，再启动前端：
 
 ```sh
-cd frontend
+cd web
 npm ci
 cp .env.example .env.local # 已有本地配置时，只增加 SGZ_BACKEND_URL
 npm run dev
